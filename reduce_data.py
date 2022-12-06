@@ -8,6 +8,7 @@ from pypeit.core import procimg, skysub, findobj_skymask
 from pypeit.core.extract import fit_profile, extract_optimal
 
 from linetools.spectra.xspectrum1d import XSpectrum1D
+from scipy import signal
 from scipy.signal import medfilt2d, correlate2d
 from scipy import ndimage, interpolate
 from IPython import embed
@@ -15,6 +16,28 @@ import reduce_wavecal_fitting as rwf
 import copy
 import mpfit
 
+
+def main():
+    # Initialise the reduce class
+    thisred = reduce(use_diff=False,
+                     step_listfiles=False,
+                     step_pattern=False,  # Generate an image of the detector pattern
+                     step_makedarkfit=False, step_makedarkframe=False,  # Make a dark image
+                     step_makeflat=False,  # Make a flatfield image
+                     step_makearc=False,  # Make an arc image
+                     step_makediff=False,  # Make difference and sum images
+                     step_makecuts=False,  # Make difference and sum images
+                     step_trace=True, step_extract=True, step_skycoeffs=False, mean_skycoeff=False, step_basis=True,
+                     ext_sky=False,  # Trace the spectrum and extract
+                     step_wavecal_prelim=True,  # Calculate a preliminary wavelength calibration solution
+                     step_prepALIS=False,
+                     # Once the data are reduced, prepare a series of files to be used to fit the wavelength solution with ALIS
+                     step_combspec=False, step_combspec_rebin=False,
+                     # First get the corrected data from ALIS, and then combine all exposures with this step.
+                     step_wavecal_sky=False, step_comb_sky=False,
+                     # Wavelength calibrate all sky spectra and then combine
+                     step_sample_NumExpCombine=False)  # Combine a different number of exposures to estimate how S/N depends on the number of exposures combined.
+    thisred.run()
 
 def myfunct(par, fjac=None, xmod=None, xmid=None, flux=None, error=None):
     model_spline = interpolate.CubicSpline(xmod, par)
@@ -57,6 +80,7 @@ class reduce():
                  step_wavecal_sky=False, step_comb_sky=False,  # Wavelength calibrate all sky spectra and then combine
                  step_sample_NumExpCombine=False):
 
+        self._plotit = False
         self._specaxis = 0
         self._gain = 2.15  # This value comes from the header
         self._chip = 1  # self._chip can be 1, 2, or 3
@@ -176,7 +200,7 @@ class reduce():
         
         self._arc_files = ["CRIRE.2022-10-22T10:30:27.878.fits"]
 
-        self._chip_str = "self._chip{0:d}.fits".format(self._chip)
+        self._chip_str = "chip{0:d}.fits".format(self._chip)
         self._pattern_name = self._calspath + "pattern_" + self._chip_str
         self._masterflat_name = self._calspath + "masterflat_" + self._chip_str
         self._masterdark_name = self._calspath + "masterdark_" + self._chip_str
@@ -313,7 +337,7 @@ class reduce():
         ref_spec = np.ma.median(flx_ma, axis=1)
         ref_spec_mad = 1.4826 * np.ma.median(np.abs(flx_ma - ref_spec.reshape(ref_spec.size, 1)), axis=1)
         # Compute and apply the scaling to apply to all spectra, relative to the reference
-        if plotit:
+        if self._plotit:
             for sp in range(nspec):
                 plt.plot(out_wave, out_flux[:, sp] * np.median(ref_spec / out_flux[:, sp]), 'k-', drawstyle='steps-mid')
             plt.show()
@@ -333,7 +357,7 @@ class reduce():
         # Calculate the excess variance
         spec, specerr = final_spec.data, final_spec_err.data
         specerr_new = self.scale_variance(out_wave, spec, specerr)
-        if plotit:
+        if self._plotit:
             for sp in range(nspec):
                 plt.plot(out_wave, out_flux[:, sp], 'k-', drawstyle='steps-mid')
                 ww = new_mask[:, sp]
@@ -823,7 +847,6 @@ class reduce():
         #     opspl = interpolate.CubicSpline(xloc, cnts)
         return xloc, cnts
 
-
     def basis_fit(self, extfrm_use, ivar_use, tilts, waveimg, spatimg, spec, idx, skycoeffs=False):
         msflat = fits.open(self._masterflat_name)[0].data
         onslit = msflat > 0.1
@@ -1159,18 +1182,18 @@ class reduce():
             trc_pos = findobj_skymask.objs_in_slit(
                 frame, ivar, thismask, ledge, redge,
                 ncoeff=self._polyord, boxcar_rad=boxcar_rad,
-                show_fits=plotit, nperslit=1)
+                show_fits=self._plotit, nperslit=1)
             if self._use_diff:
                 trc_neg = findobj_skymask.objs_in_slit(
                     -frame, ivar, thismask, ledge, redge,
                     ncoeff=self._polyord, boxcar_rad=boxcar_rad,
-                    show_fits=plotit, nperslit=1)
+                    show_fits=self._plotit, nperslit=1)
             else:
                 trc_neg = findobj_skymask.objs_in_slit(
                     frame2, ivar, thismask, ledge, redge,
                     ncoeff=self._polyord, boxcar_rad=boxcar_rad,
-                    show_fits=plotit, nperslit=1)
-            if plotit:
+                    show_fits=self._plotit, nperslit=1)
+            if self._plotit:
                 spec = np.arange(frame.shape[self._specaxis])
                 plt.imshow(frame.T, vmin=-200, vmax=200, origin='lower')
                 plt.plot(spec, trc_pos[0].TRACE_SPAT + boxcar_rad, 'b-')
@@ -1183,7 +1206,7 @@ class reduce():
 
             all_traces.append(trc_pos)
             all_traces.append(trc_neg)
-            if mean_skycoeff:
+            if self._mean_skycoeff:
                 continue
             elif self._step_extract:
                 # Optimal Extraction
@@ -1214,7 +1237,7 @@ class reduce():
                     # Are we doing basis fitting
                     if self._step_basis or self._step_skycoeffs:
                         retval = self.basis_fit(extfrm_use, ivar_use, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt,
-                                           skycoeffs=step_skycoeffs)
+                                           skycoeffs=self._step_skycoeffs)
                         if retval:
                             continue
                     else:
@@ -1233,7 +1256,7 @@ class reduce():
                             adderr=0.0002,
                             force_gauss=False,
                             sn_gauss=4,
-                            show_profile=plotit,
+                            show_profile=self._plotit,
                             use_2dmodel_mask=False,
                             no_local_sky=False)
                 if not self._step_skycoeffs and not self._step_basis:
@@ -1249,7 +1272,7 @@ class reduce():
                     np.savetxt(outB, np.transpose((trc_neg['BOX_WAVE'][0, :], trc_neg['BOX_COUNTS'][0, :],
                                                    trc_neg['BOX_COUNTS_SIG'][0, :], trc_neg['OPT_WAVE'][0, :],
                                                    trc_neg['OPT_COUNTS'][0, :], trc_neg['OPT_COUNTS_SIG'][0, :])))
-                    if plotit or True:
+                    if self._plotit or True:
                         plt.subplot(211)
                         plt.plot(trc_pos['BOX_WAVE'][0, :], trc_pos['BOX_COUNTS'][0, :], 'k-', drawstyle='steps-mid')
                         plt.plot(trc_pos['BOX_WAVE'][0, :], trc_pos['BOX_COUNTS_SKY'][0, :], 'b-',
@@ -1289,8 +1312,6 @@ class reduce():
                     plt.plot(tiltspl.ev(np.arange(nspec), all_traces[ss][0].TRACE_SPAT), scl * all_coeffs[:, 2, ss])
                 plt.show()
             # Cross-correlate to find shifts
-            from scipy import signal
-
             nfit = 3
             lagvals = np.zeros(nfiles)
             for bb in range(1, nbasis):
@@ -1534,35 +1555,4 @@ class reduce():
         # np.savetxt("SNR_NumExpCombine.dat", np.transpose((snr_all, snr_all_err, snr_all_adj, snr_all_adj_err)))
 
 if __name__ == '__main__':
-    plotit = False
-    use_diff = False
-    step_listfiles = False  # List the files
-    step_pattern = False  # Generate an image of the detector pattern
-    step_makedarkfit, step_makedarkframe = False, False  # Make a dark image
-    step_makeflat = False  # Make a flatfield image
-    step_makearc = False  # Make an arc image
-    step_makediff = False  # Make difference and sum images
-    step_makecuts = False  # Make difference and sum images
-    step_trace, step_extract, step_skycoeffs, mean_skycoeff, step_basis, ext_sky = False, False, False, False, False, False  # Trace the spectrum and extract
-    step_wavecal_prelim = True  # Calculate a preliminary wavelength calibration solution
-    step_prepALIS = False  # Once the data are reduced, prepare a series of files to be used to fit the wavelength solution with ALIS
-    step_combspec, step_combspec_rebin = False, False  # First get the corrected data from ALIS, and then combine all exposures with this step.
-    step_wavecal_sky, step_comb_sky = False, False  # Wavelength calibrate all sky spectra and then combine
-    step_sample_NumExpCombine = False  # Combine a different number of exposures to estimate how S/N depends on the number of exposures combined.
-    
-    # Initialise the reduce class
-    thisred = reduce(use_diff=use_diff,
-                     step_listfiles=False,
-                     step_pattern=False,  # Generate an image of the detector pattern
-                     step_makedarkfit = False, step_makedarkframe = False,  # Make a dark image
-                     step_makeflat = False,  # Make a flatfield image
-                     step_makearc = False,  # Make an arc image
-                     step_makediff = False,  # Make difference and sum images
-                     step_makecuts = False,  # Make difference and sum images
-                     step_trace = False, step_extract = False, step_skycoeffs=False, mean_skycoeff=False, step_basis=False, ext_sky = False,  # Trace the spectrum and extract
-                     step_wavecal_prelim = True,  # Calculate a preliminary wavelength calibration solution
-                     step_prepALIS = False,  # Once the data are reduced, prepare a series of files to be used to fit the wavelength solution with ALIS
-                     step_combspec = False, step_combspec_rebin = False,  # First get the corrected data from ALIS, and then combine all exposures with this step.
-                     step_wavecal_sky = False, step_comb_sky = False,  # Wavelength calibrate all sky spectra and then combine
-                     step_sample_NumExpCombine = False)  # Combine a different number of exposures to estimate how S/N depends on the number of exposures combined.
-    thisred.run()
+    main()
