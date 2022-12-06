@@ -17,28 +17,6 @@ import copy
 import mpfit
 
 
-def main():
-    # Initialise the reduce class
-    thisred = reduce(use_diff=False,
-                     step_listfiles=False,
-                     step_pattern=False,  # Generate an image of the detector pattern
-                     step_makedarkfit=False, step_makedarkframe=False,  # Make a dark image
-                     step_makeflat=False,  # Make a flatfield image
-                     step_makearc=False,  # Make an arc image
-                     step_makediff=False,  # Make difference and sum images
-                     step_makecuts=False,  # Make difference and sum images
-                     step_trace=True, step_extract=True, step_skycoeffs=False, mean_skycoeff=False, step_basis=True,
-                     ext_sky=False,  # Trace the spectrum and extract
-                     step_wavecal_prelim=True,  # Calculate a preliminary wavelength calibration solution
-                     step_prepALIS=False,
-                     # Once the data are reduced, prepare a series of files to be used to fit the wavelength solution with ALIS
-                     step_combspec=False, step_combspec_rebin=False,
-                     # First get the corrected data from ALIS, and then combine all exposures with this step.
-                     step_wavecal_sky=False, step_comb_sky=False,
-                     # Wavelength calibrate all sky spectra and then combine
-                     step_sample_NumExpCombine=False)  # Combine a different number of exposures to estimate how S/N depends on the number of exposures combined.
-    thisred.run()
-
 def myfunct(par, fjac=None, xmod=None, xmid=None, flux=None, error=None):
     model_spline = interpolate.CubicSpline(xmod, par)
     model = np.zeros(xmid.size)
@@ -61,8 +39,8 @@ def myfunct_pix(par, fjac=None, xval=None, flux=None, error=None, objspl=None):
     return [status, devs]
 
 
-class reduce():
-    def __init__(self, use_diff=False,
+class ReduceBase:
+    def __init__(self, prefix="targetname", use_diff=False,
                  step_listfiles=False,
                  step_pattern=False,  # Generate an image of the detector pattern
                  step_makedarkfit=False, step_makedarkframe=False,  # Make a dark image
@@ -80,6 +58,7 @@ class reduce():
                  step_wavecal_sky=False, step_comb_sky=False,  # Wavelength calibrate all sky spectra and then combine
                  step_sample_NumExpCombine=False):
 
+        self._prefix = prefix
         self._plotit = False
         self._specaxis = 0
         self._gain = 2.15  # This value comes from the header
@@ -90,22 +69,8 @@ class reduce():
         self._velstep = 1.5  # Sample the FWHM by ~2.5 pixels
         self._maskval = -99999999  # Masked value for combining data
         self._sigcut = 3.0  # Rejection level when combining data
-        
-        self._redux_path = "/Users/rcooke/Work/Research/BBN/helium34/Absorption/2022_ESO_Survey/OrionNebula/CRIRES/"
-        self._data_folder = "Raw/"
-        self._cals_folder = "redux_tet01OriA/calibrations/"
-        self._proc_folder = "redux_tet01OriA/processed/"
-        self._alt_folder = "redux_tet01OriA/alternative/"
-        self._datapath = self._redux_path + self._data_folder
-        self._calspath = self._redux_path + self._cals_folder
-        self._procpath = self._redux_path + self._proc_folder
-        self._altpath = self._redux_path + self._alt_folder
 
-        # Check if paths exist, if not, make them
-        if not os.path.exists(self._calspath):
-            os.mkdir(self._calspath)
-        if not os.path.exists(self._procpath):
-            os.mkdir(self._procpath)
+        self.makePaths()
 
         # Set the reduction flags
         self._use_diff = use_diff
@@ -131,75 +96,31 @@ class reduce():
         self._step_comb_sky = step_comb_sky
         self._step_sample_NumExpCombine = step_sample_NumExpCombine
 
-        self._matches = [["CRIRE.2022-10-24T06:00:36.335.fits", "CRIRE.2022-10-24T06:13:09.282.fits"],  # A 1.0 B 6.5
-                   ["CRIRE.2022-10-24T06:04:35.716.fits", "CRIRE.2022-10-24T06:09:01.470.fits"],  # B 1 A 6.5
-                   ["CRIRE.2022-10-24T06:30:39.815.fits", "CRIRE.2022-10-24T06:17:44.032.fits"],  # B 5.5 A 2.0
-                   ["CRIRE.2022-10-24T06:22:02.926.fits", "CRIRE.2022-10-24T06:26:34.004.fits"],  # B 2.0 A 5.5
-                   ["CRIRE.2022-10-24T06:52:30.465.fits", "CRIRE.2022-10-24T06:39:29.485.fits"],  # B 5.0 A 2.5
-                   ["CRIRE.2022-10-24T06:43:55.087.fits", "CRIRE.2022-10-24T06:48:26.383.fits"],  # B 2.5 A 5.0
-                   ["CRIRE.2022-10-26T07:56:25.958.fits", "CRIRE.2022-10-26T07:41:37.963.fits"],  # B 4.5 A 3
-                   ["CRIRE.2022-10-26T07:45:45.398.fits", "CRIRE.2022-10-26T07:52:14.741.fits"],  # B 3 A 4.5
-                   ["CRIRE.2022-10-26T08:05:42.277.fits", "CRIRE.2022-10-26T08:10:26.674.fits"],  # B 3.5 A 4.0
-                   ["CRIRE.2022-10-26T08:14:33.857.fits", "CRIRE.2022-10-26T08:01:34.447.fits"],  # B 4.0 A 3.5
-                   ["CRIRE.2022-10-26T07:23:06.300.fits", "CRIRE.2022-10-26T07:32:50.776.fits"],  # B 1.5 A 6.0
-                   ["CRIRE.2022-10-26T07:37:01.870.fits", "CRIRE.2022-10-26T07:19:05.099.fits"],  # B 6.0 A 1.5
-                   ["CRIRE.2022-10-24T06:56:45.738.fits", "CRIRE.2022-10-26T08:19:06.223.fits"]]  # B 0.0 A 0.0  # WARNING!!! A=B=0 --> don't use diff!
-
-        # self._matches = [["CRIRE.2022-10-24T06:17:44.032.fits", "CRIRE.2022-10-24T06:39:29.485.fits"], # A 2.0 A 2.5
-        #            ["CRIRE.2022-10-24T06:17:44.032.fits", "CRIRE.2022-10-26T07:41:37.963.fits"]] # A 2.0 A 3.0
+        self._matches = self.get_science_frames()
 
         self._numframes = len(self._matches)
 
-        self._flat_files = ["CRIRE.2022-10-24T12:16:57.426.fits",
-                          "CRIRE.2022-10-24T12:19:47.093.fits",
-                          "CRIRE.2022-10-24T12:22:36.765.fits",
-                          "CRIRE.2022-10-24T12:25:26.444.fits",
-                          "CRIRE.2022-10-24T12:28:16.078.fits",
-                          "CRIRE.2022-10-24T12:31:05.749.fits",
-                          "CRIRE.2022-10-24T12:33:55.416.fits",
-                          "CRIRE.2022-10-24T12:36:45.086.fits",
-                          "CRIRE.2022-10-24T12:39:34.764.fits",
-                          "CRIRE.2022-10-24T12:42:24.432.fits",
-                          "CRIRE.2022-10-24T12:45:14.094.fits",
-                          "CRIRE.2022-10-24T12:48:03.767.fits",
-                          "CRIRE.2022-10-24T12:50:53.443.fits",
-                          "CRIRE.2022-10-24T12:53:43.108.fits",
-                          "CRIRE.2022-10-24T12:56:32.779.fits",
-                          "CRIRE.2022-10-24T12:59:22.447.fits",
-                          "CRIRE.2022-10-24T13:02:12.114.fits",
-                          "CRIRE.2022-10-24T13:05:01.782.fits",
-                          "CRIRE.2022-10-24T13:07:51.458.fits",
-                          "CRIRE.2022-10-24T13:10:41.130.fits",
-                          "CRIRE.2022-10-24T13:13:30.806.fits",
-                          "CRIRE.2022-10-24T13:16:20.477.fits",
-                          "CRIRE.2022-10-24T13:19:10.142.fits",
-                          "CRIRE.2022-10-24T13:21:59.815.fits",
-                          "CRIRE.2022-10-24T13:24:49.481.fits"]
-        
-        # Group dark files with different exposure times
-        # self._dark_files = [["CRIRE.2022-10-26T11:03:01.530.fits","CRIRE.2022-10-26T11:03:31.004.fits","CRIRE.2022-10-26T11:04:00.460.fits"]]#7s
-        #              ["CRIRE.2022-10-23T09:56:07.724.fits",CRIRE.2022-10-23T09:56:46.200.fits DARK 10.0
-        #               ["CRIRE.2022-10-22T10:47:49.622.fits","CRIRE.2022-10-22T10:48:40.271.fits","CRIRE.2022-10-22T10:49:30.864.fits"],#45s
-        self._dark_files = [["CRIRE.2022-10-22T10:41:32.754.fits", "CRIRE.2022-10-22T10:43:38.383.fits",
-                       "CRIRE.2022-10-22T10:45:43.983.fits"]]  # 120s
-        # self._dark_files = [["CRIRE.2022-10-22T09:53:35.283.fits",
-        #               "CRIRE.2022-10-22T09:52:56.793.fits",
-        #               "CRIRE.2022-10-22T09:54:13.782.fits",
-        #               "CRIRE.2022-10-22T10:13:26.766.fits",
-        #               "CRIRE.2022-10-22T15:50:32.090.fits",
-        #               "CRIRE.2022-10-22T15:51:10.599.fits",
-        #               "CRIRE.2022-10-22T10:14:43.746.fits",
-        #               "CRIRE.2022-10-22T10:14:05.264.fits",
-        #               "CRIRE.2022-10-23T09:36:16.909.fits",
-        #               "CRIRE.2022-10-22T15:51:49.070.fits",
-        #               "CRIRE.2022-10-23T09:36:55.391.fits",
-        #               "CRIRE.2022-10-23T09:37:33.865.fits",
-        #               "CRIRE.2022-10-23T09:57:24.705.fits",
-        #               "CRIRE.2022-10-23T09:56:46.200.fits",
-        #               "CRIRE.2022-10-23T09:56:07.724.fits"]] #10s
-        
-        self._arc_files = ["CRIRE.2022-10-22T10:30:27.878.fits"]
+        self._flat_files = self.get_flat_frames()
+        self._dark_files = self.get_dark_frames()
+        self._arc_files = self.get_arc_frames()
 
+    def makePaths(self, redux_path="",
+                  data_folder="Raw/"):
+        self._redux_path = redux_path
+        self._data_folder = data_folder
+        self._cals_folder = "redux_"+self._prefix+"/calibrations/"
+        self._proc_folder = "redux_"+self._prefix+"/processed/"
+        self._alt_folder = "redux_"+self._prefix+"/alternative/"
+        self._datapath = self._redux_path + self._data_folder
+        self._calspath = self._redux_path + self._cals_folder
+        self._procpath = self._redux_path + self._proc_folder
+        self._altpath = self._redux_path + self._alt_folder
+
+        # Check if paths exist, if not, make them
+        if not os.path.exists(self._calspath):
+            os.mkdir(self._calspath)
+        if not os.path.exists(self._procpath):
+            os.mkdir(self._procpath)
         self._chip_str = "chip{0:d}.fits".format(self._chip)
         self._pattern_name = self._calspath + "pattern_" + self._chip_str
         self._masterflat_name = self._calspath + "masterflat_" + self._chip_str
@@ -208,6 +129,18 @@ class reduce():
         self._diff_name = self._procpath + "diff_FR{0:02d}_" + self._chip_str
         self._sumd_name = self._procpath + "sumd_FR{0:02d}_" + self._chip_str
         self._cut_name = self._procpath + "cuts_FR{0:02d}_" + self._chip_str
+
+    def get_science_frames(self):
+        return None
+
+    def get_dark_frames(self):
+        return None
+
+    def get_flat_frames(self):
+        return None
+
+    def get_arc_frames(self):
+        return None
 
     def run(self):
         if self._step_listfiles: self.step_listfiles()
@@ -239,7 +172,7 @@ class reduce():
                     outname = usePath + "spec1d_{0:02d}_{1:s}_sky_wzcorr.dat".format(ff // 2, self._nods[ff % 2])
                     opt_wave, opt_cnts, opt_cerr = np.loadtxt(outname, usecols=(0, 1, 2), unpack=True)
                 else:
-                    outname = usePath + "tet02OriA_ALIS_spec{0:02d}_wzcorr.dat".format(ff)
+                    outname = usePath + self.prefix+"_ALIS_spec{0:02d}_wzcorr.dat".format(ff)
                     opt_wave, opt_cnts, opt_cerr = np.loadtxt(outname, usecols=(0, 2, 3), unpack=True)
                 raw_specs.append(XSpectrum1D.from_tuple((opt_wave, opt_cnts, opt_cerr), verbose=False))
                 if np.min(opt_wave) < minwv:
@@ -375,7 +308,8 @@ class reduce():
                 else:
                     out_specname = usePath + "tet02_OriA_HeI10833_scaleErr_fitr_wzcorr_comb_rebin.dat"
                     fitr[np.where(
-                        ((out_wave > 10827.0) & (out_wave < 10832.64)) | ((out_wave > 10833.16) & (out_wave < 10839)))] = 1
+                        ((out_wave > 10827.0) & (out_wave < 10832.64)) | (
+                                    (out_wave > 10833.16) & (out_wave < 10839)))] = 1
                 np.savetxt(out_specname, np.transpose((out_wave, spec, specerr_new, fitr)))
             else:
                 if sky:
@@ -385,7 +319,6 @@ class reduce():
                 np.savetxt(out_specname, np.transpose((out_wave, spec, specerr_new)))
             print("File written: {0:s}".format(out_specname))
         return out_wave, spec, specerr_new
-
 
     def scale_variance(self, out_wave, spec, specerr, getSNR=False):
         wc = np.where((out_wave >= 10827) & (out_wave <= 10830))
@@ -492,7 +425,8 @@ class reduce():
             try:
                 print(files[ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'],
                       fil[0].header['HIERARCH ESO SEQ NODPOS'], fil[0].header['HIERARCH ESO SEQ NODTHROW'],
-                      fil[0].header['EXPTIME'], fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET self._chip self._gain'])
+                      fil[0].header['EXPTIME'], fil[0].header['OBJECT'],
+                      fil[1].header['HIERARCH ESO DET self._chip self._gain'])
             except:
                 print(files[ff].strip("\n"), fil[0].header['OBJECT'], fil[0].header['EXPTIME'])
                 continue
@@ -516,7 +450,8 @@ class reduce():
         for gg in range(len(self._dark_files)):
             for ff in range(len(self._dark_files[gg])):
                 fil = fits.open(self._datapath + self._dark_files[gg][ff].strip("\n"))
-                print(self._dark_files[gg][ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'], fil[0].header['EXPTIME'],
+                print(self._dark_files[gg][ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'],
+                      fil[0].header['EXPTIME'],
                       fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET self._chip self._gain'])
                 rawdata[:, :, gg, ff] = fil[1].data[self._slice]
                 if ff == 0: exptime[gg] = fil[0].header['EXPTIME']
@@ -561,7 +496,8 @@ class reduce():
         for gg in range(len(self._dark_files)):
             for ff in range(len(self._dark_files[gg])):
                 fil = fits.open(self._datapath + self._dark_files[gg][ff].strip("\n"))
-                print(self._dark_files[gg][ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'], fil[0].header['EXPTIME'],
+                print(self._dark_files[gg][ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'],
+                      fil[0].header['EXPTIME'],
                       fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET self._chip self._gain'])
                 rawdata[:, :, gg, ff] = fil[1].data[self._slice]
                 if ff == 0: exptime[gg] = fil[0].header['EXPTIME']
@@ -727,7 +663,6 @@ class reduce():
             hdu.writeto(outname, overwrite=True)
             print("File written: {0:s}".format(outname))
 
-
     def basis_fitter(self, x, y, van, w=None, rcond=None, full=False, debug=False):
         order = van.shape[1]
         deg = order - 1
@@ -783,7 +718,6 @@ class reduce():
 
         return c, Vbase
 
-
     # def fit_object_profile(self, spat, flux, ivar, spacing=0.5):
     #     def fit_func_objprof(x, pars):
     #         interpolate.CubicSpline(x, y)
@@ -811,7 +745,6 @@ class reduce():
             ii += 1
             print(f"Iteration {ii} :: Number of new bad pixels = {nnew}... total number of masked pixels = {nmask}")
         return gpm_img
-
 
     def object_profile(self, allflux, allspat, allgpmtmp):
         allgpm = allgpmtmp.copy()
@@ -953,7 +886,7 @@ class reduce():
                 #            wfit = np.abs(extfrm_use[ss,:])**0.25
                 wfit = ivar_use[ss, :]  # DONT CHANGE THIS WITHOUT CHANGING OUTFLUXBOX_ERR BELOW!!!
                 gd = np.where((np.abs(xfit) <= 10.0 / np.max(xloc)) & (
-                gpm_img[ss, :]))  # Only include pixels that are defined within the spatial profile domain
+                    gpm_img[ss, :]))  # Only include pixels that are defined within the spatial profile domain
                 # Construct the vandermonde matrix
                 vander = np.ones((xfit[gd].size, nbasis))
                 vander[:, 0] = opspl(xdat[gd])
@@ -1084,7 +1017,6 @@ class reduce():
         else:
             return False
         return False
-
 
     def step_trace(self):
         # Obtain a mask of the bad pixels
@@ -1237,7 +1169,7 @@ class reduce():
                     # Are we doing basis fitting
                     if self._step_basis or self._step_skycoeffs:
                         retval = self.basis_fit(extfrm_use, ivar_use, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt,
-                                           skycoeffs=self._step_skycoeffs)
+                                                skycoeffs=self._step_skycoeffs)
                         if retval:
                             continue
                     else:
@@ -1442,7 +1374,8 @@ class reduce():
                 fitr[np.where(
                     ((out_wave > 10827.0) & (out_wave < 10832.64)) | ((out_wave > 10833.16) & (out_wave < 10839)))] = 1
                 np.savetxt(
-                    self._procpath + "tet02_OriA_HeI10833_scaleErr_wzcorr_fitr_comb{0:02d}.dat".format(bpm.shape[0] - ss),
+                    self._procpath + "tet02_OriA_HeI10833_scaleErr_wzcorr_fitr_comb{0:02d}.dat".format(
+                        bpm.shape[0] - ss),
                     np.transpose((out_wave, spec, specerr, fitr)))
             # Save the final spectrum
             print("Saving output spectrum...")
@@ -1511,7 +1444,7 @@ class reduce():
         snr, snradj = np.zeros(nspec), np.zeros(nspec)
         for ss in range(nspec):
             snr[ss], snradj[ss] = self.scale_variance(raw_specs[ss].wavelength.value, raw_specs[ss].flux.value,
-                                                 raw_specs[ss].sig.value, getSNR=True)
+                                                      raw_specs[ss].sig.value, getSNR=True)
         snr_all[0] = np.median(snr)
         snr_all_err[0] = 1.4826 * np.median(np.abs(snr - np.median(snr)))
         snr_all_adj[0] = np.mean(snradj)
@@ -1553,6 +1486,3 @@ class reduce():
         #     snr_all_adj[nspec-ss-1] = np.mean(snradj)
         #     snr_all_adj_err[nspec-ss-1] = np.std(snradj)
         # np.savetxt("SNR_NumExpCombine.dat", np.transpose((snr_all, snr_all_err, snr_all_adj, snr_all_adj_err)))
-
-if __name__ == '__main__':
-    main()
