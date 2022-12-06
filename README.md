@@ -1,2 +1,2 @@
 # CRIRESredux
-A hacked reduction of CRIRES data with PypeIt
+A hacked reduction of CRIRES data with PypeIt. As a forewarning, the code in this script is probably unintelligable to anyone but me (sorry!), and is likely not suited to anyone else's data reduction needs. One day, I'll help to implement CRIRES data reduction in PypeIt...
