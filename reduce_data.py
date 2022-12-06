@@ -5,6 +5,8 @@ import astropy.units as units
 from matplotlib import pyplot as plt
 from pypeit import utils
 from pypeit.core import procimg, skysub, findobj_skymask
+from pypeit.core.extract import fit_profile, extract_optimal
+
 from linetools.spectra.xspectrum1d import XSpectrum1D
 from scipy.signal import medfilt2d, correlate2d
 from scipy import ndimage, interpolate
@@ -12,127 +14,6 @@ from IPython import embed
 import reduce_wavecal_fitting as rwf
 import copy
 import mpfit
-
-specaxis = 0
-gain = 2.15  # This value comes from the header
-chip = 1  # Chip can be 1, 2, or 3
-slice = np.meshgrid(np.arange(310, 600), np.arange(2048), indexing='ij')
-polyord = 10  # Polynomial order used to trace the spectra
-nods = ['A', 'B']
-velstep = 1.5  # Sample the FWHM by ~2.5 pixels
-maskval = -99999999  # Masked value for combining data
-sigcut = 3.0  # Rejection level when combining data
-
-redux_path = "/Users/rcooke/Work/Research/BBN/helium34/Absorption/2022_ESO_Survey/OrionNebula/CRIRES/"
-data_folder = "Raw/"
-cals_folder = "redux_tet01OriA/calibrations/"
-proc_folder = "redux_tet01OriA/processed/"
-alt_folder = "redux_tet01OriA/alternative/"
-datapath = redux_path + data_folder
-calspath = redux_path + cals_folder
-procpath = redux_path + proc_folder
-altpath = redux_path + alt_folder
-
-# Check if paths exist, if not, make them
-if not os.path.exists(calspath):
-    os.mkdir(calspath)
-if not os.path.exists(procpath):
-    os.mkdir(procpath)
-
-plotit = False
-use_diff = False
-step_listfiles = False  # List the files
-step_pattern = False  # Generate an image of the detector pattern
-step_makedarkfit, step_makedarkframe = False, False  # Make a dark image
-step_makeflat = False  # Make a flatfield image
-step_makearc = False  # Make an arc image
-step_makediff = False  # Make difference and sum images
-step_makecuts = False  # Make difference and sum images
-step_trace, step_extract, step_skycoeffs, mean_skycoeff, step_basis, ext_sky = False, False, False, False, False, False  # Trace the spectrum and extract
-step_wavecal_prelim = True  # Calculate a preliminary wavelength calibration solution
-step_prepALIS = False  # Once the data are reduced, prepare a series of files to be used to fit the wavelength solution with ALIS
-step_combspec, step_combspec_rebin = False, False  # First get the corrected data from ALIS, and then combine all exposures with this step.
-step_wavecal_sky, step_comb_sky = False, False  # Wavelength calibrate all sky spectra and then combine
-step_sample_NumExpCombine = False  # Combine a different number of exposures to estimate how S/N depends on the number of exposures combined.
-
-matches = [["CRIRE.2022-10-24T06:00:36.335.fits", "CRIRE.2022-10-24T06:13:09.282.fits"],  # A 1.0 B 6.5
-           ["CRIRE.2022-10-24T06:04:35.716.fits", "CRIRE.2022-10-24T06:09:01.470.fits"],  # B 1 A 6.5
-           ["CRIRE.2022-10-24T06:30:39.815.fits", "CRIRE.2022-10-24T06:17:44.032.fits"],  # B 5.5 A 2.0
-           ["CRIRE.2022-10-24T06:22:02.926.fits", "CRIRE.2022-10-24T06:26:34.004.fits"],  # B 2.0 A 5.5
-           ["CRIRE.2022-10-24T06:52:30.465.fits", "CRIRE.2022-10-24T06:39:29.485.fits"],  # B 5.0 A 2.5
-           ["CRIRE.2022-10-24T06:43:55.087.fits", "CRIRE.2022-10-24T06:48:26.383.fits"],  # B 2.5 A 5.0
-           ["CRIRE.2022-10-26T07:56:25.958.fits", "CRIRE.2022-10-26T07:41:37.963.fits"],  # B 4.5 A 3
-           ["CRIRE.2022-10-26T07:45:45.398.fits", "CRIRE.2022-10-26T07:52:14.741.fits"],  # B 3 A 4.5
-           ["CRIRE.2022-10-26T08:05:42.277.fits", "CRIRE.2022-10-26T08:10:26.674.fits"],  # B 3.5 A 4.0
-           ["CRIRE.2022-10-26T08:14:33.857.fits", "CRIRE.2022-10-26T08:01:34.447.fits"],  # B 4.0 A 3.5
-           ["CRIRE.2022-10-26T07:23:06.300.fits", "CRIRE.2022-10-26T07:32:50.776.fits"],  # B 1.5 A 6.0
-           ["CRIRE.2022-10-26T07:37:01.870.fits", "CRIRE.2022-10-26T07:19:05.099.fits"],  # B 6.0 A 1.5
-           ["CRIRE.2022-10-24T06:56:45.738.fits",
-            "CRIRE.2022-10-26T08:19:06.223.fits"]]  # B 0.0 A 0.0  # WARNING!!! A=B=0 --> don't use diff!
-
-# matches = [["CRIRE.2022-10-24T06:17:44.032.fits", "CRIRE.2022-10-24T06:39:29.485.fits"], # A 2.0 A 2.5
-#            ["CRIRE.2022-10-24T06:17:44.032.fits", "CRIRE.2022-10-26T07:41:37.963.fits"]] # A 2.0 A 3.0
-
-numframes = len(matches)
-
-flat_files = ["CRIRE.2022-10-24T12:16:57.426.fits",
-              "CRIRE.2022-10-24T12:19:47.093.fits",
-              "CRIRE.2022-10-24T12:22:36.765.fits",
-              "CRIRE.2022-10-24T12:25:26.444.fits",
-              "CRIRE.2022-10-24T12:28:16.078.fits",
-              "CRIRE.2022-10-24T12:31:05.749.fits",
-              "CRIRE.2022-10-24T12:33:55.416.fits",
-              "CRIRE.2022-10-24T12:36:45.086.fits",
-              "CRIRE.2022-10-24T12:39:34.764.fits",
-              "CRIRE.2022-10-24T12:42:24.432.fits",
-              "CRIRE.2022-10-24T12:45:14.094.fits",
-              "CRIRE.2022-10-24T12:48:03.767.fits",
-              "CRIRE.2022-10-24T12:50:53.443.fits",
-              "CRIRE.2022-10-24T12:53:43.108.fits",
-              "CRIRE.2022-10-24T12:56:32.779.fits",
-              "CRIRE.2022-10-24T12:59:22.447.fits",
-              "CRIRE.2022-10-24T13:02:12.114.fits",
-              "CRIRE.2022-10-24T13:05:01.782.fits",
-              "CRIRE.2022-10-24T13:07:51.458.fits",
-              "CRIRE.2022-10-24T13:10:41.130.fits",
-              "CRIRE.2022-10-24T13:13:30.806.fits",
-              "CRIRE.2022-10-24T13:16:20.477.fits",
-              "CRIRE.2022-10-24T13:19:10.142.fits",
-              "CRIRE.2022-10-24T13:21:59.815.fits",
-              "CRIRE.2022-10-24T13:24:49.481.fits"]
-
-# Group dark files with different exposure times
-# dark_files = [["CRIRE.2022-10-26T11:03:01.530.fits","CRIRE.2022-10-26T11:03:31.004.fits","CRIRE.2022-10-26T11:04:00.460.fits"]]#7s
-#              ["CRIRE.2022-10-23T09:56:07.724.fits",CRIRE.2022-10-23T09:56:46.200.fits DARK 10.0
-#               ["CRIRE.2022-10-22T10:47:49.622.fits","CRIRE.2022-10-22T10:48:40.271.fits","CRIRE.2022-10-22T10:49:30.864.fits"],#45s
-dark_files = [["CRIRE.2022-10-22T10:41:32.754.fits", "CRIRE.2022-10-22T10:43:38.383.fits",
-               "CRIRE.2022-10-22T10:45:43.983.fits"]]  # 120s
-# dark_files = [["CRIRE.2022-10-22T09:53:35.283.fits",
-#               "CRIRE.2022-10-22T09:52:56.793.fits",
-#               "CRIRE.2022-10-22T09:54:13.782.fits",
-#               "CRIRE.2022-10-22T10:13:26.766.fits",
-#               "CRIRE.2022-10-22T15:50:32.090.fits",
-#               "CRIRE.2022-10-22T15:51:10.599.fits",
-#               "CRIRE.2022-10-22T10:14:43.746.fits",
-#               "CRIRE.2022-10-22T10:14:05.264.fits",
-#               "CRIRE.2022-10-23T09:36:16.909.fits",
-#               "CRIRE.2022-10-22T15:51:49.070.fits",
-#               "CRIRE.2022-10-23T09:36:55.391.fits",
-#               "CRIRE.2022-10-23T09:37:33.865.fits",
-#               "CRIRE.2022-10-23T09:57:24.705.fits",
-#               "CRIRE.2022-10-23T09:56:46.200.fits",
-#               "CRIRE.2022-10-23T09:56:07.724.fits"]] #10s
-
-arc_files = ["CRIRE.2022-10-22T10:30:27.878.fits"]
-
-chip_str = "CHIP{0:d}.fits".format(chip)
-pattern_name = calspath + "pattern_" + chip_str
-masterflat_name = calspath + "masterflat_" + chip_str
-masterdark_name = calspath + "masterdark_" + chip_str
-masterarc_name = calspath + "masterarc_" + chip_str
-diff_name = procpath + "diff_FR{0:02d}_" + chip_str
-sumd_name = procpath + "sumd_FR{0:02d}_" + chip_str
-cut_name = procpath + "cuts_FR{0:02d}_" + chip_str
 
 
 def myfunct(par, fjac=None, xmod=None, xmid=None, flux=None, error=None):
@@ -157,307 +38,463 @@ def myfunct_pix(par, fjac=None, xval=None, flux=None, error=None, objspl=None):
     return [status, devs]
 
 
-def comb_prep(use_corrected=False, sky=False):
-    raw_specs = []
-    minwv = 9999999999999
-    maxwv = -minwv
-    if use_corrected:
-        usePath = altpath + "alt_"
-        if use_diff: usePath = procpath
-        for ff in range(numframes * len(nods)):
-            #        for ff in range(numframes):
-            if sky:
-                outname = usePath + "spec1d_{0:02d}_{1:s}_sky_wzcorr.dat".format(ff // 2, nods[ff % 2])
-                opt_wave, opt_cnts, opt_cerr = np.loadtxt(outname, usecols=(0, 1, 2), unpack=True)
-            else:
-                outname = usePath + "tet02OriA_ALIS_spec{0:02d}_wzcorr.dat".format(ff)
-                opt_wave, opt_cnts, opt_cerr = np.loadtxt(outname, usecols=(0, 2, 3), unpack=True)
-            raw_specs.append(XSpectrum1D.from_tuple((opt_wave, opt_cnts, opt_cerr), verbose=False))
-            if np.min(opt_wave) < minwv:
-                minwv = np.min(opt_wave)
-            if np.max(opt_wave) > maxwv:
-                maxwv = np.max(opt_wave)
-    else:
-        usePath = altpath
-        if use_diff: usePath = procpath
-        for ff in range(numframes):
-            for nod in nods:
-                outname = usePath + "spec1d_wave_{0:02d}_{1:s}.dat".format(ff, nod)
-                box_wave, box_cnts, box_cerr, opt_wave, opt_cnts, opt_cerr = np.loadtxt(outname, unpack=True)
+class reduce():
+    def __init__(self, use_diff=False,
+                 step_listfiles=False,
+                 step_pattern=False,  # Generate an image of the detector pattern
+                 step_makedarkfit=False, step_makedarkframe=False,  # Make a dark image
+                 step_makeflat=False,  # Make a flatfield image
+                 step_makearc=False,  # Make an arc image
+                 step_makediff=False,  # Make difference and sum images
+                 step_makecuts=False,  # Make difference and sum images
+                 step_trace=False, step_extract=False, step_skycoeffs=False, mean_skycoeff=False, step_basis=False,
+                 ext_sky=False,  # Trace the spectrum and extract
+                 step_wavecal_prelim=True,  # Calculate a preliminary wavelength calibration solution
+                 step_prepALIS=False,
+                 # Once the data are reduced, prepare a series of files to be used to fit the wavelength solution with ALIS
+                 step_combspec=False, step_combspec_rebin=False,
+                 # First get the corrected data from ALIS, and then combine all exposures with this step.
+                 step_wavecal_sky=False, step_comb_sky=False,  # Wavelength calibrate all sky spectra and then combine
+                 step_sample_NumExpCombine=False):
+
+        self._specaxis = 0
+        self._gain = 2.15  # This value comes from the header
+        self._chip = 1  # self._chip can be 1, 2, or 3
+        self._slice = np.meshgrid(np.arange(310, 600), np.arange(2048), indexing='ij')
+        self._polyord = 10  # Polynomial order used to trace the spectra
+        self._nods = ['A', 'B']
+        self._velstep = 1.5  # Sample the FWHM by ~2.5 pixels
+        self._maskval = -99999999  # Masked value for combining data
+        self._sigcut = 3.0  # Rejection level when combining data
+        
+        self._redux_path = "/Users/rcooke/Work/Research/BBN/helium34/Absorption/2022_ESO_Survey/OrionNebula/CRIRES/"
+        self._data_folder = "Raw/"
+        self._cals_folder = "redux_tet01OriA/calibrations/"
+        self._proc_folder = "redux_tet01OriA/processed/"
+        self._alt_folder = "redux_tet01OriA/alternative/"
+        self._datapath = self._redux_path + self._data_folder
+        self._calspath = self._redux_path + self._cals_folder
+        self._procpath = self._redux_path + self._proc_folder
+        self._altpath = self._redux_path + self._alt_folder
+
+        # Check if paths exist, if not, make them
+        if not os.path.exists(self._calspath):
+            os.mkdir(self._calspath)
+        if not os.path.exists(self._procpath):
+            os.mkdir(self._procpath)
+
+        # Set the reduction flags
+        self._use_diff = use_diff
+        self._step_listfiles = step_listfiles
+        self._step_pattern = step_pattern
+        self._step_makedarkfit = step_makedarkfit
+        self._step_makedarkframe = step_makedarkframe
+        self._step_makeflat = step_makeflat
+        self._step_makearc = step_makearc
+        self._step_makediff = step_makediff
+        self._step_makecuts = step_makecuts
+        self._step_trace = step_trace
+        self._step_extract = step_extract
+        self._step_skycoeffs = step_skycoeffs
+        self._mean_skycoeff = mean_skycoeff
+        self._step_basis = step_basis
+        self._ext_sky = ext_sky
+        self._step_wavecal_prelim = step_wavecal_prelim
+        self._step_prepALIS = step_prepALIS
+        self._step_combspec = step_combspec
+        self._step_combspec_rebin = step_combspec_rebin
+        self._step_wavecal_sky = step_wavecal_sky
+        self._step_comb_sky = step_comb_sky
+        self._step_sample_NumExpCombine = step_sample_NumExpCombine
+
+        self._matches = [["CRIRE.2022-10-24T06:00:36.335.fits", "CRIRE.2022-10-24T06:13:09.282.fits"],  # A 1.0 B 6.5
+                   ["CRIRE.2022-10-24T06:04:35.716.fits", "CRIRE.2022-10-24T06:09:01.470.fits"],  # B 1 A 6.5
+                   ["CRIRE.2022-10-24T06:30:39.815.fits", "CRIRE.2022-10-24T06:17:44.032.fits"],  # B 5.5 A 2.0
+                   ["CRIRE.2022-10-24T06:22:02.926.fits", "CRIRE.2022-10-24T06:26:34.004.fits"],  # B 2.0 A 5.5
+                   ["CRIRE.2022-10-24T06:52:30.465.fits", "CRIRE.2022-10-24T06:39:29.485.fits"],  # B 5.0 A 2.5
+                   ["CRIRE.2022-10-24T06:43:55.087.fits", "CRIRE.2022-10-24T06:48:26.383.fits"],  # B 2.5 A 5.0
+                   ["CRIRE.2022-10-26T07:56:25.958.fits", "CRIRE.2022-10-26T07:41:37.963.fits"],  # B 4.5 A 3
+                   ["CRIRE.2022-10-26T07:45:45.398.fits", "CRIRE.2022-10-26T07:52:14.741.fits"],  # B 3 A 4.5
+                   ["CRIRE.2022-10-26T08:05:42.277.fits", "CRIRE.2022-10-26T08:10:26.674.fits"],  # B 3.5 A 4.0
+                   ["CRIRE.2022-10-26T08:14:33.857.fits", "CRIRE.2022-10-26T08:01:34.447.fits"],  # B 4.0 A 3.5
+                   ["CRIRE.2022-10-26T07:23:06.300.fits", "CRIRE.2022-10-26T07:32:50.776.fits"],  # B 1.5 A 6.0
+                   ["CRIRE.2022-10-26T07:37:01.870.fits", "CRIRE.2022-10-26T07:19:05.099.fits"],  # B 6.0 A 1.5
+                   ["CRIRE.2022-10-24T06:56:45.738.fits", "CRIRE.2022-10-26T08:19:06.223.fits"]]  # B 0.0 A 0.0  # WARNING!!! A=B=0 --> don't use diff!
+
+        # self._matches = [["CRIRE.2022-10-24T06:17:44.032.fits", "CRIRE.2022-10-24T06:39:29.485.fits"], # A 2.0 A 2.5
+        #            ["CRIRE.2022-10-24T06:17:44.032.fits", "CRIRE.2022-10-26T07:41:37.963.fits"]] # A 2.0 A 3.0
+
+        self._numframes = len(self._matches)
+
+        self._flat_files = ["CRIRE.2022-10-24T12:16:57.426.fits",
+                          "CRIRE.2022-10-24T12:19:47.093.fits",
+                          "CRIRE.2022-10-24T12:22:36.765.fits",
+                          "CRIRE.2022-10-24T12:25:26.444.fits",
+                          "CRIRE.2022-10-24T12:28:16.078.fits",
+                          "CRIRE.2022-10-24T12:31:05.749.fits",
+                          "CRIRE.2022-10-24T12:33:55.416.fits",
+                          "CRIRE.2022-10-24T12:36:45.086.fits",
+                          "CRIRE.2022-10-24T12:39:34.764.fits",
+                          "CRIRE.2022-10-24T12:42:24.432.fits",
+                          "CRIRE.2022-10-24T12:45:14.094.fits",
+                          "CRIRE.2022-10-24T12:48:03.767.fits",
+                          "CRIRE.2022-10-24T12:50:53.443.fits",
+                          "CRIRE.2022-10-24T12:53:43.108.fits",
+                          "CRIRE.2022-10-24T12:56:32.779.fits",
+                          "CRIRE.2022-10-24T12:59:22.447.fits",
+                          "CRIRE.2022-10-24T13:02:12.114.fits",
+                          "CRIRE.2022-10-24T13:05:01.782.fits",
+                          "CRIRE.2022-10-24T13:07:51.458.fits",
+                          "CRIRE.2022-10-24T13:10:41.130.fits",
+                          "CRIRE.2022-10-24T13:13:30.806.fits",
+                          "CRIRE.2022-10-24T13:16:20.477.fits",
+                          "CRIRE.2022-10-24T13:19:10.142.fits",
+                          "CRIRE.2022-10-24T13:21:59.815.fits",
+                          "CRIRE.2022-10-24T13:24:49.481.fits"]
+        
+        # Group dark files with different exposure times
+        # self._dark_files = [["CRIRE.2022-10-26T11:03:01.530.fits","CRIRE.2022-10-26T11:03:31.004.fits","CRIRE.2022-10-26T11:04:00.460.fits"]]#7s
+        #              ["CRIRE.2022-10-23T09:56:07.724.fits",CRIRE.2022-10-23T09:56:46.200.fits DARK 10.0
+        #               ["CRIRE.2022-10-22T10:47:49.622.fits","CRIRE.2022-10-22T10:48:40.271.fits","CRIRE.2022-10-22T10:49:30.864.fits"],#45s
+        self._dark_files = [["CRIRE.2022-10-22T10:41:32.754.fits", "CRIRE.2022-10-22T10:43:38.383.fits",
+                       "CRIRE.2022-10-22T10:45:43.983.fits"]]  # 120s
+        # self._dark_files = [["CRIRE.2022-10-22T09:53:35.283.fits",
+        #               "CRIRE.2022-10-22T09:52:56.793.fits",
+        #               "CRIRE.2022-10-22T09:54:13.782.fits",
+        #               "CRIRE.2022-10-22T10:13:26.766.fits",
+        #               "CRIRE.2022-10-22T15:50:32.090.fits",
+        #               "CRIRE.2022-10-22T15:51:10.599.fits",
+        #               "CRIRE.2022-10-22T10:14:43.746.fits",
+        #               "CRIRE.2022-10-22T10:14:05.264.fits",
+        #               "CRIRE.2022-10-23T09:36:16.909.fits",
+        #               "CRIRE.2022-10-22T15:51:49.070.fits",
+        #               "CRIRE.2022-10-23T09:36:55.391.fits",
+        #               "CRIRE.2022-10-23T09:37:33.865.fits",
+        #               "CRIRE.2022-10-23T09:57:24.705.fits",
+        #               "CRIRE.2022-10-23T09:56:46.200.fits",
+        #               "CRIRE.2022-10-23T09:56:07.724.fits"]] #10s
+        
+        self._arc_files = ["CRIRE.2022-10-22T10:30:27.878.fits"]
+
+        self._chip_str = "self._chip{0:d}.fits".format(self._chip)
+        self._pattern_name = self._calspath + "pattern_" + self._chip_str
+        self._masterflat_name = self._calspath + "masterflat_" + self._chip_str
+        self._masterdark_name = self._calspath + "masterdark_" + self._chip_str
+        self._masterarc_name = self._calspath + "masterarc_" + self._chip_str
+        self._diff_name = self._procpath + "diff_FR{0:02d}_" + self._chip_str
+        self._sumd_name = self._procpath + "sumd_FR{0:02d}_" + self._chip_str
+        self._cut_name = self._procpath + "cuts_FR{0:02d}_" + self._chip_str
+
+    def run(self):
+        if self._step_listfiles: self.step_listfiles()
+        if self._step_pattern: self.step_pattern()
+        if self._step_makedarkfit: self.step_makedarkfit()
+        if self._step_makedarkframe: self.step_makedarkframe()
+        if self._step_makeflat: self.step_makeflat()
+        if self._step_makearc: self.step_makearc()
+        if self._step_makediff: self.step_makediff()
+        if self._step_makecuts: self.step_makecuts()
+        if self._step_trace: self.step_trace()
+        if self._step_wavecal_prelim: self.step_wavecal_prelim()
+        if self._step_prepALIS: self.step_prepALIS()
+        if self._step_combspec: self.step_combspec()
+        if self._step_wavecal_sky: self.step_wavecal_sky()
+        if self._step_comb_sky: self.step_comb_sky()
+        if self._step_sample_NumExpCombine: self.step_sample_NumExpCombine()
+
+    def comb_prep(self, use_corrected=False, sky=False):
+        raw_specs = []
+        minwv = 9999999999999
+        maxwv = -minwv
+        if use_corrected:
+            usePath = self._altpath + "alt_"
+            if self._use_diff: usePath = self._procpath
+            for ff in range(self._numframes * len(self._nods)):
+                #        for ff in range(self._numframes):
+                if sky:
+                    outname = usePath + "spec1d_{0:02d}_{1:s}_sky_wzcorr.dat".format(ff // 2, self._nods[ff % 2])
+                    opt_wave, opt_cnts, opt_cerr = np.loadtxt(outname, usecols=(0, 1, 2), unpack=True)
+                else:
+                    outname = usePath + "tet02OriA_ALIS_spec{0:02d}_wzcorr.dat".format(ff)
+                    opt_wave, opt_cnts, opt_cerr = np.loadtxt(outname, usecols=(0, 2, 3), unpack=True)
                 raw_specs.append(XSpectrum1D.from_tuple((opt_wave, opt_cnts, opt_cerr), verbose=False))
                 if np.min(opt_wave) < minwv:
                     minwv = np.min(opt_wave)
                 if np.max(opt_wave) > maxwv:
                     maxwv = np.max(opt_wave)
-    # Generate the final wavelength array
-    npix = np.log10(maxwv / minwv) / np.log10(1.0 + velstep / 299792.458)
-    npix = np.int(npix)
-    out_wave = minwv * (1.0 + velstep / 299792.458) ** np.arange(npix)
-    return out_wave, raw_specs
-
-
-def comb_reject(out_wave, raw_specs, use_corrected=False):
-    digits = []
-    wave_bins = out_wave.copy()
-    nspec = len(raw_specs)
-    # Organise the pixels so we know each pixel that goes into a histogram bin.
-    maxnumpix = 0
-    for sp in range(nspec):
-        dig = np.digitize(raw_specs[sp].wavelength.value, bins=wave_bins)
-        digits.append(dig.copy())
-        if raw_specs[sp].wavelength.size > maxnumpix:
-            maxnumpix = raw_specs[sp].wavelength.size
-    # Now, for each wave bin, reject some pixels
-    bpm = np.ones((nspec, maxnumpix), dtype=np.bool)
-    # Construct some convenience arrays the same shape as the BPM
-    raw_wav = np.zeros(bpm.shape)
-    raw_flx = np.zeros(bpm.shape)
-    raw_err = np.zeros(bpm.shape)
-    for sp in range(nspec):
-        bpm[sp, :raw_specs[sp].wavelength.size] = 0
-        raw_wav[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].wavelength.value
-        if use_corrected:
-            raw_flx[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].flux
-            raw_err[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].sig
         else:
-            raw_flx[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].flux / np.median(raw_specs[sp].flux)
-            raw_err[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].sig / np.median(raw_specs[sp].flux)
-    # Mask bad pixels
-    for pp in range(wave_bins.size - 1):
-        pixf = np.array([])
-        pixe = np.array([])
-        midx, midy = np.array([], dtype=np.int), np.array([], dtype=np.int)
+            usePath = self._altpath
+            if self._use_diff: usePath = self._procpath
+            for ff in range(self._numframes):
+                for nod in self._nods:
+                    outname = usePath + "spec1d_wave_{0:02d}_{1:s}.dat".format(ff, nod)
+                    box_wave, box_cnts, box_cerr, opt_wave, opt_cnts, opt_cerr = np.loadtxt(outname, unpack=True)
+                    raw_specs.append(XSpectrum1D.from_tuple((opt_wave, opt_cnts, opt_cerr), verbose=False))
+                    if np.min(opt_wave) < minwv:
+                        minwv = np.min(opt_wave)
+                    if np.max(opt_wave) > maxwv:
+                        maxwv = np.max(opt_wave)
+        # Generate the final wavelength array
+        npix = np.log10(maxwv / minwv) / np.log10(1.0 + self._velstep / 299792.458)
+        npix = np.int(npix)
+        out_wave = minwv * (1.0 + self._velstep / 299792.458) ** np.arange(npix)
+        return out_wave, raw_specs
+
+    def comb_reject(self, out_wave, raw_specs, use_corrected=False):
+        digits = []
+        wave_bins = out_wave.copy()
+        nspec = len(raw_specs)
+        # Organise the pixels so we know each pixel that goes into a histogram bin.
+        maxnumpix = 0
         for sp in range(nspec):
-            ww = np.where((raw_wav[sp, :] >= wave_bins[pp]) & (raw_wav[sp, :] < wave_bins[pp + 1]))
-            pixf = np.append(pixf, raw_flx[sp, ww[0]])
-            pixe = np.append(pixe, raw_err[sp, ww[0]])
-            midx = np.append(midx, sp * np.ones(ww[0].size, dtype=np.int))
-            midy = np.append(midy, ww[0].copy())
-        # Now iterate to find any pixels that should be masked
-        prevsz = 0
-        while True:
-            gpm = np.where(bpm[(midx, midy)] == False)
-            if gpm[0].size == 0: break
-            medv = np.median(pixf[gpm])
-            madv = 1.4826 * np.median(np.abs(pixf[gpm] - medv))
-            devs = np.where(np.abs((pixf - medv) / np.sqrt(madv ** 2 + pixe ** 2)) > sigcut)
-            if devs[0].size == prevsz:
-                break
-            else:
-                prevsz = devs[0].size
-            # Update the BPM
-            bpm[(midx[devs], midy[devs])] = True
-    return raw_wav, raw_flx, raw_err, bpm
-
-
-def comb_rebin(out_wave, raw_specs, sky=False, save=True):
-    """
-    This should only be used after the individual exposures have been processed with ALIS first
-    """
-    usePath = altpath
-    if use_diff: usePath = procpath
-    npix, nspec = out_wave.size, len(raw_specs)
-    new_specs = []
-    out_flux = maskval * np.ones((npix, nspec))
-    out_flue = maskval * np.ones((npix, nspec))
-    for sp in range(nspec):
-        new_specs.append(raw_specs[sp].rebin(out_wave * units.AA, do_sig=True))
-        gpm = new_specs[0].sig != 0.0
-        out_flux[gpm, sp] = new_specs[sp].flux[gpm]
-        out_flue[gpm, sp] = new_specs[sp].sig[gpm]
-    # Calculate a reference spectrum
-    flx_ma = np.ma.array(out_flux, mask=out_flux == maskval, fill_value=0.0)
-    ref_spec = np.ma.median(flx_ma, axis=1)
-    ref_spec_mad = 1.4826 * np.ma.median(np.abs(flx_ma - ref_spec.reshape(ref_spec.size, 1)), axis=1)
-    # Compute and apply the scaling to apply to all spectra, relative to the reference
-    if plotit:
+            dig = np.digitize(raw_specs[sp].wavelength.value, bins=wave_bins)
+            digits.append(dig.copy())
+            if raw_specs[sp].wavelength.size > maxnumpix:
+                maxnumpix = raw_specs[sp].wavelength.size
+        # Now, for each wave bin, reject some pixels
+        bpm = np.ones((nspec, maxnumpix), dtype=np.bool)
+        # Construct some convenience arrays the same shape as the BPM
+        raw_wav = np.zeros(bpm.shape)
+        raw_flx = np.zeros(bpm.shape)
+        raw_err = np.zeros(bpm.shape)
         for sp in range(nspec):
-            plt.plot(out_wave, out_flux[:, sp] * np.median(ref_spec / out_flux[:, sp]), 'k-', drawstyle='steps-mid')
-        plt.show()
-    # Determine which pixels to reject/include in the final combination
-    devs = (out_flux - ref_spec.reshape(ref_spec.size, 1)) / out_flue
-    #    devs = (out_flux-ref_spec.reshape(ref_spec.size, 1))/np.ma.sqrt(out_flue**2 + ref_spec_mad.reshape(ref_spec.size, 1)**2)
-    mskdev = np.ma.abs(devs) < sigcut
-    # Make a new array
-    new_mask = np.logical_not(mskdev.data & np.logical_not(flx_ma.mask))
-    final_flux = np.ma.array(flx_ma.data, mask=new_mask, fill_value=0.0)
-    final_flue = np.ma.array(out_flue, mask=new_mask, fill_value=0.0)
-    # Compute the final weighted spectrum
-    ivar = utils.inverse(final_flue ** 2)
-    final_spec = np.ma.average(final_flux, weights=ivar, axis=1)
-    variance = np.ma.average((final_flux - final_spec[:, np.newaxis]) ** 2, weights=ivar, axis=1)
-    final_spec_err = np.sqrt(variance)
-    # Calculate the excess variance
-    spec, specerr = final_spec.data, final_spec_err.data
-    specerr_new = scale_variance(out_wave, spec, specerr)
-    if plotit:
+            bpm[sp, :raw_specs[sp].wavelength.size] = 0
+            raw_wav[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].wavelength.value
+            if use_corrected:
+                raw_flx[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].flux
+                raw_err[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].sig
+            else:
+                raw_flx[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].flux / np.median(raw_specs[sp].flux)
+                raw_err[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].sig / np.median(raw_specs[sp].flux)
+        # Mask bad pixels
+        for pp in range(wave_bins.size - 1):
+            pixf = np.array([])
+            pixe = np.array([])
+            midx, midy = np.array([], dtype=np.int), np.array([], dtype=np.int)
+            for sp in range(nspec):
+                ww = np.where((raw_wav[sp, :] >= wave_bins[pp]) & (raw_wav[sp, :] < wave_bins[pp + 1]))
+                pixf = np.append(pixf, raw_flx[sp, ww[0]])
+                pixe = np.append(pixe, raw_err[sp, ww[0]])
+                midx = np.append(midx, sp * np.ones(ww[0].size, dtype=np.int))
+                midy = np.append(midy, ww[0].copy())
+            # Now iterate to find any pixels that should be masked
+            prevsz = 0
+            while True:
+                gpm = np.where(bpm[(midx, midy)] == False)
+                if gpm[0].size == 0: break
+                medv = np.median(pixf[gpm])
+                madv = 1.4826 * np.median(np.abs(pixf[gpm] - medv))
+                devs = np.where(np.abs((pixf - medv) / np.sqrt(madv ** 2 + pixe ** 2)) > self._sigcut)
+                if devs[0].size == prevsz:
+                    break
+                else:
+                    prevsz = devs[0].size
+                # Update the BPM
+                bpm[(midx[devs], midy[devs])] = True
+        return raw_wav, raw_flx, raw_err, bpm
+
+    def comb_rebin(self, out_wave, raw_specs, sky=False, save=True):
+        """
+        This should only be used after the individual exposures have been processed with ALIS first
+        """
+        usePath = self._altpath
+        if self._use_diff: usePath = self._procpath
+        npix, nspec = out_wave.size, len(raw_specs)
+        new_specs = []
+        out_flux = self._maskval * np.ones((npix, nspec))
+        out_flue = self._maskval * np.ones((npix, nspec))
         for sp in range(nspec):
-            plt.plot(out_wave, out_flux[:, sp], 'k-', drawstyle='steps-mid')
-            ww = new_mask[:, sp]
-            plt.plot(out_wave[ww], out_flux[ww, sp], 'bx', drawstyle='steps-mid')
-        plt.plot(out_wave, spec, 'r-', drawstyle='steps-mid')
-        plt.plot(out_wave, specerr_new, 'g', drawstyle='steps-mid')
-        plt.show()
-    # Save the final spectrum
-    print("Saving output spectrum...")
-    if save:
-        if False:
-            fitr = np.zeros(out_wave.size)
-            if sky:
-                out_specname = usePath + "tet02_OriA_HeI10833_scaleErr_fitr_wzcorr_comb_rebin_sky.dat"
+            new_specs.append(raw_specs[sp].rebin(out_wave * units.AA, do_sig=True))
+            gpm = new_specs[0].sig != 0.0
+            out_flux[gpm, sp] = new_specs[sp].flux[gpm]
+            out_flue[gpm, sp] = new_specs[sp].sig[gpm]
+        # Calculate a reference spectrum
+        flx_ma = np.ma.array(out_flux, mask=out_flux == self._maskval, fill_value=0.0)
+        ref_spec = np.ma.median(flx_ma, axis=1)
+        ref_spec_mad = 1.4826 * np.ma.median(np.abs(flx_ma - ref_spec.reshape(ref_spec.size, 1)), axis=1)
+        # Compute and apply the scaling to apply to all spectra, relative to the reference
+        if plotit:
+            for sp in range(nspec):
+                plt.plot(out_wave, out_flux[:, sp] * np.median(ref_spec / out_flux[:, sp]), 'k-', drawstyle='steps-mid')
+            plt.show()
+        # Determine which pixels to reject/include in the final combination
+        devs = (out_flux - ref_spec.reshape(ref_spec.size, 1)) / out_flue
+        #    devs = (out_flux-ref_spec.reshape(ref_spec.size, 1))/np.ma.sqrt(out_flue**2 + ref_spec_mad.reshape(ref_spec.size, 1)**2)
+        mskdev = np.ma.abs(devs) < self._sigcut
+        # Make a new array
+        new_mask = np.logical_not(mskdev.data & np.logical_not(flx_ma.mask))
+        final_flux = np.ma.array(flx_ma.data, mask=new_mask, fill_value=0.0)
+        final_flue = np.ma.array(out_flue, mask=new_mask, fill_value=0.0)
+        # Compute the final weighted spectrum
+        ivar = utils.inverse(final_flue ** 2)
+        final_spec = np.ma.average(final_flux, weights=ivar, axis=1)
+        variance = np.ma.average((final_flux - final_spec[:, np.newaxis]) ** 2, weights=ivar, axis=1)
+        final_spec_err = np.sqrt(variance)
+        # Calculate the excess variance
+        spec, specerr = final_spec.data, final_spec_err.data
+        specerr_new = self.scale_variance(out_wave, spec, specerr)
+        if plotit:
+            for sp in range(nspec):
+                plt.plot(out_wave, out_flux[:, sp], 'k-', drawstyle='steps-mid')
+                ww = new_mask[:, sp]
+                plt.plot(out_wave[ww], out_flux[ww, sp], 'bx', drawstyle='steps-mid')
+            plt.plot(out_wave, spec, 'r-', drawstyle='steps-mid')
+            plt.plot(out_wave, specerr_new, 'g', drawstyle='steps-mid')
+            plt.show()
+        # Save the final spectrum
+        print("Saving output spectrum...")
+        if save:
+            if False:
+                fitr = np.zeros(out_wave.size)
+                if sky:
+                    out_specname = usePath + "tet02_OriA_HeI10833_scaleErr_fitr_wzcorr_comb_rebin_sky.dat"
+                else:
+                    out_specname = usePath + "tet02_OriA_HeI10833_scaleErr_fitr_wzcorr_comb_rebin.dat"
+                    fitr[np.where(
+                        ((out_wave > 10827.0) & (out_wave < 10832.64)) | ((out_wave > 10833.16) & (out_wave < 10839)))] = 1
+                np.savetxt(out_specname, np.transpose((out_wave, spec, specerr_new, fitr)))
             else:
-                out_specname = usePath + "tet02_OriA_HeI10833_scaleErr_fitr_wzcorr_comb_rebin.dat"
-                fitr[np.where(
-                    ((out_wave > 10827.0) & (out_wave < 10832.64)) | ((out_wave > 10833.16) & (out_wave < 10839)))] = 1
-            np.savetxt(out_specname, np.transpose((out_wave, spec, specerr_new, fitr)))
-        else:
-            if sky:
-                out_specname = usePath + "tet02_OriA_HeI10833_scaleErr_wzcorr_comb_rebin_sky.dat"
-            else:
-                out_specname = usePath + "tet02_OriA_HeI10833_scaleErr_wzcorr_comb_rebin.dat"
-            np.savetxt(out_specname, np.transpose((out_wave, spec, specerr_new)))
-        print("File written: {0:s}".format(out_specname))
-    return out_wave, spec, specerr_new
-
-
-def scale_variance(out_wave, spec, specerr, getSNR=False):
-    wc = np.where((out_wave >= 10827) & (out_wave <= 10830))
-    mcf = np.polyfit(out_wave[wc], spec[wc], 2)
-    modcont = np.polyval(mcf, out_wave[wc])
-    sig_meas = np.std(spec[wc] - modcont)
-    sig_calc = np.mean(specerr[wc])
-    scalefact = sig_meas / sig_calc
-    specerr_new = scalefact * specerr
-    print("Noise is underestimated by a factor of {0:f}".format(np.median(specerr_new / specerr)))
-    print("New S/N = {0:f}".format(np.median(modcont / specerr_new[wc])))
-    if getSNR:
-        return np.median(1 / specerr[wc]), np.median(1 / specerr_new[wc])
-    else:
-        return specerr_new
-
-
-def excess_variance(out_wave, spec, specerr):
-    wc = np.where((out_wave >= 10827) & (out_wave <= 10830))
-    mcf = np.polyfit(out_wave[wc], spec[wc], 2)
-    modcont = np.polyval(mcf, out_wave[wc])
-    sig_meas = np.std(spec[wc] - modcont)
-    sig_calc = np.mean(specerr[wc])
-    excess_var = sig_meas ** 2 - sig_calc ** 2
-    if excess_var < 0.0: excess_var = 0.0
-    specerr_new = np.sqrt(excess_var + specerr ** 2)
-    print("Excess, measured, calculated", excess_var, sig_meas ** 2, sig_calc ** 2)
-    print("Noise is underestimated by a factor of {0:f}".format(np.median(specerr_new / specerr)))
-    print("New S/N = {0:f}".format(np.median(modcont / specerr_new[wc])))
-    return specerr_new
-
-
-def comb_spectrum(wave_bins, raw_wav, raw_flx, raw_err, bpm, spec_use, get_specerr_orig=False):
-    ww = np.where((bpm == False) & (spec_use) & (raw_err != 0.0))
-    ivar = 1.0 / raw_err[ww] ** 2
-    spec, _ = np.histogram(raw_wav[ww], bins=wave_bins, weights=raw_flx[ww] * ivar)
-    norm, _ = np.histogram(raw_wav[ww], bins=wave_bins, weights=ivar)
-    normfact = (norm != 0) / (norm + (norm == 0))
-    spec *= normfact
-    specerr = np.sqrt(normfact)
-    # Calculate the excess noise factor
-    out_wave = 0.5 * (wave_bins[1:] + wave_bins[:-1])
-    specerr_new = excess_variance(out_wave, spec, specerr)
-    if get_specerr_orig:
-        return out_wave, spec, specerr, specerr_new
-    else:
+                if sky:
+                    out_specname = usePath + "tet02_OriA_HeI10833_scaleErr_wzcorr_comb_rebin_sky.dat"
+                else:
+                    out_specname = usePath + "tet02_OriA_HeI10833_scaleErr_wzcorr_comb_rebin.dat"
+                np.savetxt(out_specname, np.transpose((out_wave, spec, specerr_new)))
+            print("File written: {0:s}".format(out_specname))
         return out_wave, spec, specerr_new
 
 
-def get_darkname(basename, tim):
-    return basename.replace(".fits", f"_{tim}s.fits")
+    def scale_variance(self, out_wave, spec, specerr, getSNR=False):
+        wc = np.where((out_wave >= 10827) & (out_wave <= 10830))
+        mcf = np.polyfit(out_wave[wc], spec[wc], 2)
+        modcont = np.polyval(mcf, out_wave[wc])
+        sig_meas = np.std(spec[wc] - modcont)
+        sig_calc = np.mean(specerr[wc])
+        scalefact = sig_meas / sig_calc
+        specerr_new = scalefact * specerr
+        print("Noise is underestimated by a factor of {0:f}".format(np.median(specerr_new / specerr)))
+        print("New S/N = {0:f}".format(np.median(modcont / specerr_new[wc])))
+        if getSNR:
+            return np.median(1 / specerr[wc]), np.median(1 / specerr_new[wc])
+        else:
+            return specerr_new
 
+    def excess_variance(self, out_wave, spec, specerr):
+        wc = np.where((out_wave >= 10827) & (out_wave <= 10830))
+        mcf = np.polyfit(out_wave[wc], spec[wc], 2)
+        modcont = np.polyval(mcf, out_wave[wc])
+        sig_meas = np.std(spec[wc] - modcont)
+        sig_calc = np.mean(specerr[wc])
+        excess_var = sig_meas ** 2 - sig_calc ** 2
+        if excess_var < 0.0: excess_var = 0.0
+        specerr_new = np.sqrt(excess_var + specerr ** 2)
+        print("Excess, measured, calculated", excess_var, sig_meas ** 2, sig_calc ** 2)
+        print("Noise is underestimated by a factor of {0:f}".format(np.median(specerr_new / specerr)))
+        print("New S/N = {0:f}".format(np.median(modcont / specerr_new[wc])))
+        return specerr_new
 
-def trace_tilt(objtrc, trcnum=50, plotit=False):
-    """
-    trcnum = the number of spatial pixels to trace either side of the object trace (objtrc)
-    """
-    msarc = fits.open(masterarc_name)[0].data.T
-    medfilt = medfilt2d(msarc, kernel_size=(1, 7))
-    # Find the peak near the trace
-    # 1679, 145
-    nfit = 0
-    for ff in range(-nfit, nfit + 1):
-        #        idx = np.arange(1679-17+35*ff,1679+17+35*ff)
-        idx = np.arange(1644 - 17 + 35 * ff, 1644 + 17 + 35 * ff)
-        amax = idx[np.argmax(medfilt[(idx, np.round(objtrc).astype(int)[idx])])]
-        xpos = int(np.round(objtrc[amax]))
-        allcen = np.zeros(1 + 2 * trcnum)
-        # First trace one way
-        this_amax = amax
-        for ss in range(0, trcnum + 1):
-            idx = np.arange(this_amax - 5, this_amax + 5)
-            thisspec = medfilt[(idx, xpos + ss)]
-            coeff = np.polyfit(idx, thisspec, 2)
-            newmax = -0.5 * coeff[1] / coeff[0]
-            allcen[trcnum + ss] = newmax
-            this_amax = int(np.round(newmax))
-        # Now trace the other way
-        this_amax = amax
-        for ss in range(0, trcnum):
-            idx = np.arange(this_amax - 5, this_amax + 5)
-            thisspec = medfilt[(idx, xpos - ss - 1)]
-            coeff = np.polyfit(idx, thisspec, 2)
-            newmax = -0.5 * coeff[1] / coeff[0]
-            allcen[trcnum - ss - 1] = newmax
-            this_amax = int(np.round(newmax))
-        # Now perform a fit to the tilt
-        xdat = np.arange(xpos - trcnum, xpos + trcnum + 1)
-        coeff = np.polyfit(xdat, allcen, 2)
-        model = np.polyval(coeff, xdat)
-        modcen = np.polyval(coeff, objtrc[amax])
-        coeff = np.polyfit(xdat, modcen - allcen, 2)
-        if plotit:
-            #             plt.plot(xdat, allcen, 'b')
-            #             plt.plot(xdat, model, 'r-')
-            plt.plot(xdat, allcen - model)
-    plt.show()
-    # Generate a tilt image
-    spatimg = np.arange(msarc.shape[1])[None, :].repeat(msarc.shape[0], axis=0)
-    specimg = np.arange(msarc.shape[0])[:, None].repeat(msarc.shape[1], axis=1)
-    tiltimg = specimg + np.polyval(coeff, spatimg)
-    return tiltimg
+    def comb_spectrum(self, wave_bins, raw_wav, raw_flx, raw_err, bpm, spec_use, get_specerr_orig=False):
+        ww = np.where((bpm == False) & (spec_use) & (raw_err != 0.0))
+        ivar = 1.0 / raw_err[ww] ** 2
+        spec, _ = np.histogram(raw_wav[ww], bins=wave_bins, weights=raw_flx[ww] * ivar)
+        norm, _ = np.histogram(raw_wav[ww], bins=wave_bins, weights=ivar)
+        normfact = (norm != 0) / (norm + (norm == 0))
+        spec *= normfact
+        specerr = np.sqrt(normfact)
+        # Calculate the excess noise factor
+        out_wave = 0.5 * (wave_bins[1:] + wave_bins[:-1])
+        specerr_new = self.excess_variance(out_wave, spec, specerr)
+        if get_specerr_orig:
+            return out_wave, spec, specerr, specerr_new
+        else:
+            return out_wave, spec, specerr_new
 
+    def get_darkname(self, basename, tim):
+        return basename.replace(".fits", f"_{tim}s.fits")
 
-if __name__ == '__main__':
-    if step_listfiles:
+    def trace_tilt(self, objtrc, trcnum=50, plotit=False):
+        """
+        trcnum = the number of spatial pixels to trace either side of the object trace (objtrc)
+        """
+        msarc = fits.open(self._masterarc_name)[0].data.T
+        medfilt = medfilt2d(msarc, kernel_size=(1, 7))
+        # Find the peak near the trace
+        # 1679, 145
+        nfit = 0
+        for ff in range(-nfit, nfit + 1):
+            #        idx = np.arange(1679-17+35*ff,1679+17+35*ff)
+            idx = np.arange(1644 - 17 + 35 * ff, 1644 + 17 + 35 * ff)
+            amax = idx[np.argmax(medfilt[(idx, np.round(objtrc).astype(int)[idx])])]
+            xpos = int(np.round(objtrc[amax]))
+            allcen = np.zeros(1 + 2 * trcnum)
+            # First trace one way
+            this_amax = amax
+            for ss in range(0, trcnum + 1):
+                idx = np.arange(this_amax - 5, this_amax + 5)
+                thisspec = medfilt[(idx, xpos + ss)]
+                coeff = np.polyfit(idx, thisspec, 2)
+                newmax = -0.5 * coeff[1] / coeff[0]
+                allcen[trcnum + ss] = newmax
+                this_amax = int(np.round(newmax))
+            # Now trace the other way
+            this_amax = amax
+            for ss in range(0, trcnum):
+                idx = np.arange(this_amax - 5, this_amax + 5)
+                thisspec = medfilt[(idx, xpos - ss - 1)]
+                coeff = np.polyfit(idx, thisspec, 2)
+                newmax = -0.5 * coeff[1] / coeff[0]
+                allcen[trcnum - ss - 1] = newmax
+                this_amax = int(np.round(newmax))
+            # Now perform a fit to the tilt
+            xdat = np.arange(xpos - trcnum, xpos + trcnum + 1)
+            coeff = np.polyfit(xdat, allcen, 2)
+            model = np.polyval(coeff, xdat)
+            modcen = np.polyval(coeff, objtrc[amax])
+            coeff = np.polyfit(xdat, modcen - allcen, 2)
+            if plotit:
+                #             plt.plot(xdat, allcen, 'b')
+                #             plt.plot(xdat, model, 'r-')
+                plt.plot(xdat, allcen - model)
+        plt.show()
+        # Generate a tilt image
+        spatimg = np.arange(msarc.shape[1])[None, :].repeat(msarc.shape[0], axis=0)
+        specimg = np.arange(msarc.shape[0])[:, None].repeat(msarc.shape[1], axis=1)
+        tiltimg = specimg + np.polyval(coeff, spatimg)
+        return tiltimg
+
+    def step_listfiles(self):
         files = open("files.list").readlines()
         for ff in range(len(files)):
-            fil = fits.open(datapath + files[ff].strip("\n"))
+            fil = fits.open(self._datapath + files[ff].strip("\n"))
             try:
                 print(files[ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'],
                       fil[0].header['HIERARCH ESO SEQ NODPOS'], fil[0].header['HIERARCH ESO SEQ NODTHROW'],
-                      fil[0].header['EXPTIME'], fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET CHIP GAIN'])
+                      fil[0].header['EXPTIME'], fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET self._chip self._gain'])
             except:
                 print(files[ff].strip("\n"), fil[0].header['OBJECT'], fil[0].header['EXPTIME'])
                 continue
 
-    if step_pattern:
+    def step_pattern(self):
         print("Making detector pattern image")
-        fil = fits.open(datapath + matches[0][0])
-        rawdata = fil[chip].data * gain
+        fil = fits.open(self._datapath + self._matches[0][0])
+        rawdata = fil[self._chip].data * self._gain
         medvec = np.median(rawdata, axis=0)
         medframe = medvec.reshape((1, medvec.size)).repeat(rawdata.shape[0], axis=0)
-        hdu = fits.PrimaryHDU(medframe[slice])
-        hdu.writeto(pattern_name, overwrite=True)
-        print("File written: {0:s}".format(pattern_name))
+        hdu = fits.PrimaryHDU(medframe[self._slice])
+        hdu.writeto(self._pattern_name, overwrite=True)
+        print("File written: {0:s}".format(self._pattern_name))
 
-    if step_makedarkfit:
+    def step_makedarkfit(self):
         print("Making dark image")
         # Now generate the flat field
         sigclip = 10.0
-        rawdata = np.zeros((slice[0].shape + (len(dark_files), len(dark_files[0]),)))
-        exptime = np.zeros(len(dark_files))
-        for gg in range(len(dark_files)):
-            for ff in range(len(dark_files[gg])):
-                fil = fits.open(datapath + dark_files[gg][ff].strip("\n"))
-                print(dark_files[gg][ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'], fil[0].header['EXPTIME'],
-                      fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET CHIP GAIN'])
-                rawdata[:, :, gg, ff] = fil[1].data[slice]
+        rawdata = np.zeros((self._slice[0].shape + (len(self._dark_files), len(self._dark_files[0]),)))
+        exptime = np.zeros(len(self._dark_files))
+        for gg in range(len(self._dark_files)):
+            for ff in range(len(self._dark_files[gg])):
+                fil = fits.open(self._datapath + self._dark_files[gg][ff].strip("\n"))
+                print(self._dark_files[gg][ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'], fil[0].header['EXPTIME'],
+                      fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET self._chip self._gain'])
+                rawdata[:, :, gg, ff] = fil[1].data[self._slice]
                 if ff == 0: exptime[gg] = fil[0].header['EXPTIME']
                 assert (exptime[gg] == fil[0].header['EXPTIME'])
         # Sigma clip
@@ -479,7 +516,7 @@ if __name__ == '__main__':
                 print("ITERATION", iternum, prev)
         # Take an average of the dark frames in each group
         msdarkarr = np.ma.mean(mskarr, axis=3).data
-        msdark = np.zeros(slice[0].shape + (2,))
+        msdark = np.zeros(self._slice[0].shape + (2,))
         # Fit a linear function to each pixel so that we have dark counts per second
         print("Fitting the master dark frame")
         for xx in range(msdark.shape[0]):
@@ -488,21 +525,21 @@ if __name__ == '__main__':
                 msdark[xx, yy, :] = coeff  # np.polyval(coeff, np.array([0.0,1.0]))
                 # msdark[xx,yy,1] -= msdark[xx,yy,0] # Need to subtract the constant offset
         hdu = fits.PrimaryHDU(msdark)
-        hdu.writeto(masterdark_name, overwrite=True)
-        print("File written: {0:s}".format(masterdark_name))
+        hdu.writeto(self._masterdark_name, overwrite=True)
+        print("File written: {0:s}".format(self._masterdark_name))
 
-    if step_makedarkframe:
+    def step_makedarkframe(self):
         print("Making dark image")
         # Now generate the dark frame
         sigclip = 10.0
-        rawdata = np.zeros((slice[0].shape + (len(dark_files), len(dark_files[0]),)))
-        exptime = np.zeros(len(dark_files))
-        for gg in range(len(dark_files)):
-            for ff in range(len(dark_files[gg])):
-                fil = fits.open(datapath + dark_files[gg][ff].strip("\n"))
-                print(dark_files[gg][ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'], fil[0].header['EXPTIME'],
-                      fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET CHIP GAIN'])
-                rawdata[:, :, gg, ff] = fil[1].data[slice]
+        rawdata = np.zeros((self._slice[0].shape + (len(self._dark_files), len(self._dark_files[0]),)))
+        exptime = np.zeros(len(self._dark_files))
+        for gg in range(len(self._dark_files)):
+            for ff in range(len(self._dark_files[gg])):
+                fil = fits.open(self._datapath + self._dark_files[gg][ff].strip("\n"))
+                print(self._dark_files[gg][ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'], fil[0].header['EXPTIME'],
+                      fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET self._chip self._gain'])
+                rawdata[:, :, gg, ff] = fil[1].data[self._slice]
                 if ff == 0: exptime[gg] = fil[0].header['EXPTIME']
                 assert (exptime[gg] == fil[0].header['EXPTIME'])
         # Sigma clip
@@ -526,22 +563,22 @@ if __name__ == '__main__':
         msdarkarr = np.ma.mean(mskarr, axis=3).data
         for gg in range(len(exptime)):
             hdu = fits.PrimaryHDU(msdarkarr[:, :, gg])
-            newdarkname = get_darkname(masterdark_name, int(exptime[gg]))
+            newdarkname = self.get_darkname(self._masterdark_name, int(exptime[gg]))
             hdu.writeto(newdarkname, overwrite=True)
             print("File written: {0:s}".format(newdarkname))
 
-    if step_makeflat:
+    def step_makeflat(self):
         print("Making flatfield image")
         # Now generate the flat field
         sigclip = 10.0
-        rawdata = np.zeros((slice[0].shape + (len(flat_files),)))
-        for ff in range(len(flat_files)):
-            fil = fits.open(datapath + flat_files[ff].strip("\n"))
-            print(flat_files[ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'], fil[0].header['EXPTIME'],
-                  fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET CHIP GAIN'])
+        rawdata = np.zeros((self._slice[0].shape + (len(self._flat_files),)))
+        for ff in range(len(self._flat_files)):
+            fil = fits.open(self._datapath + self._flat_files[ff].strip("\n"))
+            print(self._flat_files[ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'], fil[0].header['EXPTIME'],
+                  fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET self._chip self._gain'])
             # Load the dark frame
-            msdark = fits.open(get_darkname(masterdark_name, int(fil[0].header['EXPTIME'])))[0].data
-            rawdata[:, :, ff] = fil[1].data[slice] - msdark
+            msdark = fits.open(self.get_darkname(self._masterdark_name, int(fil[0].header['EXPTIME'])))[0].data
+            rawdata[:, :, ff] = fil[1].data[self._slice] - msdark
         # Sigma clip
         bpm = np.zeros(rawdata.shape, dtype=bool)
         iternum, prev = 0, 0
@@ -562,19 +599,19 @@ if __name__ == '__main__':
         msflat = np.ma.mean(mskarr, axis=2)
         normval = np.median(msflat.data[150:170, 1675:1695])
         hdu = fits.PrimaryHDU(msflat.data / normval)
-        hdu.writeto(masterflat_name, overwrite=True)
-        print("File written: {0:s}".format(masterflat_name))
+        hdu.writeto(self._masterflat_name, overwrite=True)
+        print("File written: {0:s}".format(self._masterflat_name))
 
-    if step_makearc:
+    def step_makearc(self):
         sigclip = 10.0
-        rawdata = np.zeros((slice[0].shape + (len(arc_files),)))
-        msflat = fits.open(masterflat_name)[0].data
-        for ff in range(len(arc_files)):
-            fil = fits.open(datapath + arc_files[ff].strip("\n"))
-            print(arc_files[ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'], fil[0].header['EXPTIME'],
-                  fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET CHIP GAIN'])
-            msdark = fits.open(get_darkname(masterdark_name, int(fil[0].header['EXPTIME'])))[0].data
-            rawdata[:, :, ff] = fil[1].data[slice] - msdark
+        rawdata = np.zeros((self._slice[0].shape + (len(self._arc_files),)))
+        msflat = fits.open(self._masterflat_name)[0].data
+        for ff in range(len(self._arc_files)):
+            fil = fits.open(self._datapath + self._arc_files[ff].strip("\n"))
+            print(self._arc_files[ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'], fil[0].header['EXPTIME'],
+                  fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET self._chip self._gain'])
+            msdark = fits.open(self.get_darkname(self._masterdark_name, int(fil[0].header['EXPTIME'])))[0].data
+            rawdata[:, :, ff] = fil[1].data[self._slice] - msdark
         # Sigma clip
         bpm = np.zeros(rawdata.shape, dtype=np.bool)
         iternum, prev = 0, 0
@@ -594,80 +631,80 @@ if __name__ == '__main__':
                 print("ITERATION", iternum, prev)
         msarc = np.ma.mean(mskarr, axis=2)
         hdu = fits.PrimaryHDU(msarc.data)
-        hdu.writeto(masterarc_name, overwrite=True)
-        print("File written: {0:s}".format(masterarc_name))
+        hdu.writeto(self._masterarc_name, overwrite=True)
+        print("File written: {0:s}".format(self._masterarc_name))
 
-    if step_makediff:
+    def step_makediff(self):
         # Load the flat frame
-        msflat = fits.open(masterflat_name)[0].data
+        msflat = fits.open(self._masterflat_name)[0].data
         # Make difference images
-        for mm in range(numframes):
-            fil_a = fits.open(datapath + matches[mm][0])
-            fil_b = fits.open(datapath + matches[mm][1])
+        for mm in range(self._numframes):
+            fil_a = fits.open(self._datapath + self._matches[mm][0])
+            fil_b = fits.open(self._datapath + self._matches[mm][1])
             # Double check which is img_a and which is img_b
             if fil_a[0].header['HIERARCH ESO SEQ NODPOS'].strip() == 'A':
                 print("Found A", mm)
-                img_a = fil_a[chip].data
-                img_b = fil_b[chip].data
+                img_a = fil_a[self._chip].data
+                img_b = fil_b[self._chip].data
             else:
                 print("Switch", fil_a[0].header['HIERARCH ESO SEQ NODPOS'].strip(), mm)
-                img_b = fil_a[chip].data
-                img_a = fil_b[chip].data
+                img_b = fil_a[self._chip].data
+                img_a = fil_b[self._chip].data
             ndit = 20
             if mm == 12: ndit = 9
             # Take the difference
             diff = (img_a - img_b) * ndit
             sumd = (img_a + img_b) * ndit
             # Save the output
-            outname = diff_name.format(mm)
-            hdu = fits.PrimaryHDU(diff[slice] / msflat)
+            outname = self._diff_name.format(mm)
+            hdu = fits.PrimaryHDU(diff[self._slice] / msflat)
             hdu.writeto(outname, overwrite=True)
             print("File written: {0:s}".format(outname))
             # Summed image
-            outname = sumd_name.format(mm)
-            hdu = fits.PrimaryHDU(sumd[slice] / msflat)
+            outname = self._sumd_name.format(mm)
+            hdu = fits.PrimaryHDU(sumd[self._slice] / msflat)
             hdu.writeto(outname, overwrite=True)
             print("File written: {0:s}".format(outname))
 
-    if step_makecuts:
+    def step_makecuts(self):
         # Load the flat frame
-        # msflat = fits.open(masterflat_name)[0].data
+        # msflat = fits.open(self._masterflat_name)[0].data
         # Make cut outs of the order of interest
-        for mm in range(numframes):
+        for mm in range(self._numframes):
             # Load the files
-            fil_a = fits.open(datapath + matches[mm][0])
-            fil_b = fits.open(datapath + matches[mm][1])
+            fil_a = fits.open(self._datapath + self._matches[mm][0])
+            fil_b = fits.open(self._datapath + self._matches[mm][1])
             assert (fil_a[0].header['EXPTIME'] == fil_b[0].header[
                 'EXPTIME'])  # Otherwise, would need to generate two different dark frames below
             # Generate the dark frame
-            msdark = fits.open(get_darkname(masterdark_name, int(fil_a[0].header['EXPTIME'])))[0].data
+            msdark = fits.open(self.get_darkname(self._masterdark_name, int(fil_a[0].header['EXPTIME'])))[0].data
             # Double check which is img_a and which is img_b
             if fil_a[0].header['HIERARCH ESO SEQ NODPOS'].strip() == 'A':
                 print("Found A", mm)
-                img_a = fil_a[chip].data[slice] - msdark
-                img_b = fil_b[chip].data[slice] - msdark
+                img_a = fil_a[self._chip].data[self._slice] - msdark
+                img_b = fil_b[self._chip].data[self._slice] - msdark
             else:
                 print("Switch", fil_a[0].header['HIERARCH ESO SEQ NODPOS'].strip(), mm)
-                img_b = fil_a[chip].data[slice] - msdark
-                img_a = fil_b[chip].data[slice] - msdark
+                img_b = fil_a[self._chip].data[self._slice] - msdark
+                img_a = fil_b[self._chip].data[self._slice] - msdark
             ndit = 20
             if mm == 12: ndit = 9
             # Take the difference
             cutA = img_a * ndit
             cutB = img_b * ndit
             # Save the output
-            outname = cut_name.format(2 * mm)
+            outname = self._cut_name.format(2 * mm)
             hdu = fits.PrimaryHDU(cutA)  # /msflat)
             hdu.writeto(outname, overwrite=True)
             print("File written: {0:s}".format(outname))
             # Summed image
-            outname = cut_name.format(2 * mm + 1)
+            outname = self._cut_name.format(2 * mm + 1)
             hdu = fits.PrimaryHDU(cutB)  # /msflat)
             hdu.writeto(outname, overwrite=True)
             print("File written: {0:s}".format(outname))
 
 
-    def basis_fitter(x, y, van, w=None, rcond=None, full=False, debug=False):
+    def basis_fitter(self, x, y, van, w=None, rcond=None, full=False, debug=False):
         order = van.shape[1]
         deg = order - 1
         # set up the least squares matrices in transposed form
@@ -723,19 +760,18 @@ if __name__ == '__main__':
         return c, Vbase
 
 
-    def fit_object_profile(spat, flux, ivar, spacing=0.5):
-        def fit_func_objprof(x, pars):
-            interpolate.CubicSpline(x, y)
-            return a * np.exp(-b * x) + c
+    # def fit_object_profile(self, spat, flux, ivar, spacing=0.5):
+    #     def fit_func_objprof(x, pars):
+    #         interpolate.CubicSpline(x, y)
+    #         return a * np.exp(-b * x) + c
+    #
+    #     xmin, xmax = np.min(spat) - 0.5, np.max(spat) + 0.5
+    #     nsample = int(np.ceil((xmax - xmin) / spacing))
+    #     xspl = np.linspace(xmin, xmax, nsample)
+    #
+    #     return interpolate.CubicSpline(xspl, yspl)
 
-        xmin, xmax = np.min(spat) - 0.5, np.max(spat) + 0.5
-        nsample = int(np.ceil((xmax - xmin) / spacing))
-        xspl = np.linspace(xmin, xmax, nsample)
-
-        return interpolate.CubicSpline(xspl, yspl)
-
-
-    def get_gpm(frame):
+    def get_gpm(self, frame):
         gpm_img = np.ones(frame.shape, dtype=bool)
         # Identify salt and pepper pixels with a median filter
         ii, nmask, nnew = 0, 0, -1
@@ -753,7 +789,7 @@ if __name__ == '__main__':
         return gpm_img
 
 
-    def object_profile(allflux, allspat, allgpmtmp):
+    def object_profile(self, allflux, allspat, allgpmtmp):
         allgpm = allgpmtmp.copy()
         sigrej = 3.0
         binsize = 0.1
@@ -788,8 +824,8 @@ if __name__ == '__main__':
         return xloc, cnts
 
 
-    def basis_fit(extfrm_use, ivar_use, tilts, waveimg, spatimg, spec, idx, skycoeffs=False):
-        from pypeit.core.extract import fit_profile, extract_optimal
+    def basis_fit(self, extfrm_use, ivar_use, tilts, waveimg, spatimg, spec, idx, skycoeffs=False):
+        msflat = fits.open(self._masterflat_name)[0].data
         onslit = msflat > 0.1
         onslit[:, :31] = False
         onslit[:, 269:] = False
@@ -802,7 +838,7 @@ if __name__ == '__main__':
         if skycoeffs:
             allspecimg = np.arange(extfrm_use.shape[0])[:, None].repeat(extfrm_use.shape[1], axis=1)
         else:
-            allspecimg = trace_tilt(spec.TRACE_SPAT.flatten(), trcnum=50, plotit=False)
+            allspecimg = self.trace_tilt(spec.TRACE_SPAT.flatten(), trcnum=50, plotit=False)
         allspec = allspecimg.flatten()
         allspat = (spatimg - spec.TRACE_SPAT.T).flatten()
         allflux = extfrm_use.flatten()
@@ -868,7 +904,7 @@ if __name__ == '__main__':
         #        plt.show()
         if skycoeffs:
             try:
-                inname = procpath + "skycoeffs_splinefit_k3_lags.npy"
+                inname = self._procpath + "skycoeffs_splinefit_k3_lags.npy"
                 alllags = np.load(inname)
                 # np.column_stack((spl1[0],spl1[1],spl2[0],spl2[1]))
                 spl1 = (allspl[:, 0], allspl[:, 1], 3)
@@ -931,7 +967,7 @@ if __name__ == '__main__':
                 outfluxbox[ss] = np.sum(yfit[gd] - HIIflux[ss, gd]) / np.sum(vander[:, 0])
                 outfluxbox_err[ss] = np.sqrt(np.sum(utils.inverse(wfit[gd]))) / np.sum(vander[:, 0])
                 idealSN[ss] = np.sum(yfit[gd]) / np.sqrt(np.sum(1 / wfit[gd]))
-            outPath = altpath
+            outPath = self._altpath
             outA = outPath + "spec1d_{0:02d}.dat".format(idx)
             np.savetxt(outA, np.column_stack((outwave, outfluxbox, outfluxbox_err)))
             if False:
@@ -964,9 +1000,9 @@ if __name__ == '__main__':
                 plt.hist(plttst, bins=np.linspace(-5, 5, 20))
                 plt.show()
         else:
-            inname = procpath + "skycoeffs_splinefit_k3.npy"
+            inname = self._procpath + "skycoeffs_splinefit_k3.npy"
             allspl = np.load(inname)
-            inname = procpath + "skycoeffs_splinefit_k3_lags.npy"
+            inname = self._procpath + "skycoeffs_splinefit_k3_lags.npy"
             alllags = np.load(inname)
             # np.column_stack((spl1[0],spl1[1],spl2[0],spl2[1]))
             spl1 = (allspl[:, 0], allspl[:, 1], 3)
@@ -1013,13 +1049,13 @@ if __name__ == '__main__':
             plt.plot(idealSN, drawstyle='steps-mid');
             plt.show()
             #             plt.subplot(131);plt.imshow(HIIflux, aspect=0.5, vmin=-1000, vmax=1000); plt.subplot(132); plt.imshow(extfrm_use*gpm_img, aspect=0.5, vmin=-1000, vmax=1000); plt.subplot(133); plt.imshow(gpm_img*(extfrm_use-HIIflux), aspect=0.5, vmin=-1000, vmax=1000); plt.show()
-            outPath = procpath
+            outPath = self._procpath
             outA = outPath + "spec1d_{0:02d}.dat".format(idx)
             np.savetxt(outA, np.column_stack((outwave, outfluxbox, outfluxbox_err)))
 
         # Save the sky coefficients or the spectrum
         if skycoeffs:
-            outname = procpath + "skycoeffs_{0:02d}.npy".format(idx)
+            outname = self._procpath + "skycoeffs_{0:02d}.npy".format(idx)
             np.save(outname, coeffs)
             return True
         else:
@@ -1027,45 +1063,44 @@ if __name__ == '__main__':
         return False
 
 
-    if step_trace:
+    def step_trace(self):
         # Obtain a mask of the bad pixels
-        msflat = fits.open(masterflat_name)[0].data
-        fil = fits.open(datapath + matches[0][0])
-        frm = fil[1].data[slice].T
+        fil = fits.open(self._datapath + self._matches[0][0])
+        frm = fil[1].data[self._slice].T
         frm_filt = ndimage.median_filter(frm, size=(7, 1))
         bpm = np.abs(frm - frm_filt) > 50
         # Perform the object trace and extraction
         all_traces = []
-        for ff in range(numframes):
-            if use_diff:
-                difnstr = diff_name.format(ff)
+        for ff in range(self._numframes):
+            if self._use_diff:
+                difnstr = self._diff_name.format(ff)
                 print("extracting", difnstr)
                 frame = fits.open(difnstr)[0].data.T
-                frame *= gain
-                framesum = fits.open(sumd_name.format(ff))[0].data.T
-                framesum *= gain
+                frame *= self._gain
+                framesum = fits.open(self._sumd_name.format(ff))[0].data.T
+                framesum *= self._gain
                 # Calculate the readnoise
-                rnfrm = fits.open(difnstr)[0].data * gain
+                rnfrm = fits.open(difnstr)[0].data * self._gain
                 statpix = np.append(rnfrm[:4, :].flatten(), rnfrm[-4:, :].flatten())
                 ronoise = 1.4826 * np.median(np.abs(statpix - np.median(statpix)))
                 print("RON  mean, std = ", np.mean(statpix), np.std(statpix))
                 print("RON  median, 1.4826*MAD = ", np.median(statpix), ronoise)
             else:
-                frm1 = cut_name.format(2 * ff)
-                frm2 = cut_name.format(2 * ff + 1)
+                frm1 = self._cut_name.format(2 * ff)
+                frm2 = self._cut_name.format(2 * ff + 1)
                 print("Reducing... " + frm1)
                 frame = fits.open(frm1)[0].data.T
                 frame2 = fits.open(frm2)[0].data.T
-                frame *= gain
-                frame2 *= gain
+                frame *= self._gain
+                frame2 *= self._gain
                 framesum = frame.copy()
                 # Calculate the readnoise
-                rnfrm = fits.open(frm1)[0].data * gain
+                rnfrm = fits.open(frm1)[0].data * self._gain
                 statpix = np.append(rnfrm[:4, :].flatten(), rnfrm[-4:, :].flatten())
                 ronoise = 1.4826 * np.median(np.abs(statpix - np.median(statpix)))
                 # print("RON1  mean, std = ", np.mean(statpix), np.std(statpix))
                 print("RON1  median, 1.4826*MAD = ", np.median(statpix), ronoise)
-                rnfrm = fits.open(frm2)[0].data * gain
+                rnfrm = fits.open(frm2)[0].data * self._gain
                 statpix = np.append(rnfrm[:4, :].flatten(), rnfrm[-4:, :].flatten())
                 ronoise2 = 1.4826 * np.median(np.abs(statpix - np.median(statpix)))
                 # print("RON2  mean, std = ", np.mean(statpix), np.std(statpix))
@@ -1080,10 +1115,10 @@ if __name__ == '__main__':
             if ff == 12:
                 etim = 7
                 exptime = etim * 9
-            msflat = fits.open(masterflat_name)[0].data.T
-            msdark = fits.open(get_darkname(masterdark_name, etim))[0].data.T
+            msflat = fits.open(self._masterflat_name)[0].data.T
+            msdark = fits.open(self.get_darkname(self._masterdark_name, etim))[0].data.T
             basevar = procimg.base_variance(rn2img, darkcurr=darkcurr, exptime=exptime)
-            frame_for_ivar = ((frame / gain) + msdark) * gain
+            frame_for_ivar = ((frame / self._gain) + msdark) * self._gain
             rawvarframe = procimg.variance_model(basevar, frame_for_ivar)
             # Ivar
             ivar = utils.inverse(rawvarframe)
@@ -1091,10 +1126,10 @@ if __name__ == '__main__':
             spatimg = np.arange(frame.shape[1])[:, np.newaxis].repeat(frame.shape[0], axis=1).T
             tilts = waveimg / (frame.shape[0] - 1)
             global_sky = np.zeros(frame.shape)
-            if not use_diff:
+            if not self._use_diff:
                 rn2img2 = procimg.rn2_frame(datasec_img, ronoise2)
                 basevar2 = procimg.base_variance(rn2img2, darkcurr=darkcurr, exptime=exptime)
-                frame2_for_ivar = ((frame2 / gain) + msdark) * gain
+                frame2_for_ivar = ((frame2 / self._gain) + msdark) * self._gain
                 rawvarframe2 = procimg.variance_model(basevar2, frame2_for_ivar)
                 # Ivar
                 ivar2 = utils.inverse(rawvarframe2)
@@ -1105,15 +1140,15 @@ if __name__ == '__main__':
             thismask = np.ones(frame.shape, dtype=np.bool) & np.logical_not(bpm)
             ingpm = thismask.copy()
             # Find an estimate of the slit edges
-            cen = 99 - 35.0 * np.linspace(0, 1, frame.shape[specaxis]) + 56
+            cen = 99 - 35.0 * np.linspace(0, 1, frame.shape[self._specaxis]) + 56
             # trc_edg, _ = findobj_skymask.objs_in_slit(
             #         frame, thismask,
-            #         np.zeros(frame.shape[specaxis]), np.ones(frame.shape[specaxis])*frame.shape[1-specaxis],
-            #         has_negative=True, ncoeff=polyord,
+            #         np.zeros(frame.shape[self._specaxis]), np.ones(frame.shape[self._specaxis])*frame.shape[1-self._specaxis],
+            #         has_negative=True, ncoeff=self._polyord,
             #         show_fits=plotit, nperslit=1)
             # if ff>=10:
             #     if len(trc_edg) == 0:
-            #         cen = 99 - 35.0*np.linspace(0,1,frame.shape[specaxis]) + 56
+            #         cen = 99 - 35.0*np.linspace(0,1,frame.shape[self._specaxis]) + 56
             #     else:
             #         cen = trc_edg[0].TRACE_SPAT + 56
             # else:
@@ -1123,20 +1158,20 @@ if __name__ == '__main__':
             boxcar_rad = 3.0
             trc_pos = findobj_skymask.objs_in_slit(
                 frame, ivar, thismask, ledge, redge,
-                ncoeff=polyord, boxcar_rad=boxcar_rad,
+                ncoeff=self._polyord, boxcar_rad=boxcar_rad,
                 show_fits=plotit, nperslit=1)
-            if use_diff:
+            if self._use_diff:
                 trc_neg = findobj_skymask.objs_in_slit(
                     -frame, ivar, thismask, ledge, redge,
-                    ncoeff=polyord, boxcar_rad=boxcar_rad,
+                    ncoeff=self._polyord, boxcar_rad=boxcar_rad,
                     show_fits=plotit, nperslit=1)
             else:
                 trc_neg = findobj_skymask.objs_in_slit(
                     frame2, ivar, thismask, ledge, redge,
-                    ncoeff=polyord, boxcar_rad=boxcar_rad,
+                    ncoeff=self._polyord, boxcar_rad=boxcar_rad,
                     show_fits=plotit, nperslit=1)
             if plotit:
-                spec = np.arange(frame.shape[specaxis])
+                spec = np.arange(frame.shape[self._specaxis])
                 plt.imshow(frame.T, vmin=-200, vmax=200, origin='lower')
                 plt.plot(spec, trc_pos[0].TRACE_SPAT + boxcar_rad, 'b-')
                 plt.plot(spec, trc_neg[0].TRACE_SPAT + boxcar_rad, 'b-')
@@ -1150,7 +1185,7 @@ if __name__ == '__main__':
             all_traces.append(trc_neg)
             if mean_skycoeff:
                 continue
-            elif step_extract:
+            elif self._step_extract:
                 # Optimal Extraction
                 skymodel = np.zeros_like(frame)
                 objmodel = np.zeros_like(frame)
@@ -1158,13 +1193,13 @@ if __name__ == '__main__':
                 extractmask = np.zeros_like(frame)
                 trcs = [trc_pos, trc_neg]
                 isstd = False  # True
-                if ext_sky: isstd = False
+                if self._ext_sky: isstd = False
                 for tt in range(2):
-                    if ext_sky:
+                    if self._ext_sky:
                         ee = 1 - tt
                     else:
                         ee = tt
-                    if use_diff:
+                    if self._use_diff:
                         scl = 1
                         if tt == 1: scl = -1
                         ivar_use = ivar
@@ -1177,8 +1212,8 @@ if __name__ == '__main__':
                             ivar_use = ivar2
                             extfrm_use = frame2
                     # Are we doing basis fitting
-                    if step_basis or step_skycoeffs:
-                        retval = basis_fit(extfrm_use, ivar_use, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt,
+                    if self._step_basis or self._step_skycoeffs:
+                        retval = self.basis_fit(extfrm_use, ivar_use, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt,
                                            skycoeffs=step_skycoeffs)
                         if retval:
                             continue
@@ -1201,13 +1236,13 @@ if __name__ == '__main__':
                             show_profile=plotit,
                             use_2dmodel_mask=False,
                             no_local_sky=False)
-                if not step_skycoeffs and not step_basis:
+                if not self._step_skycoeffs and not self._step_basis:
                     skytxt = ""
-                    if ext_sky: skytxt = "_sky"
-                    outPath = altpath
-                    if use_diff: outPath = procpath
-                    outA = outPath + "spec1d_{0:02d}_{1:s}{2:s}.dat".format(ff, nods[0], skytxt)
-                    outB = outPath + "spec1d_{0:02d}_{1:s}{2:s}.dat".format(ff, nods[1], skytxt)
+                    if self._ext_sky: skytxt = "_sky"
+                    outPath = self._altpath
+                    if self._use_diff: outPath = self._procpath
+                    outA = outPath + "spec1d_{0:02d}_{1:s}{2:s}.dat".format(ff, self._nods[0], skytxt)
+                    outB = outPath + "spec1d_{0:02d}_{1:s}{2:s}.dat".format(ff, self._nods[1], skytxt)
                     np.savetxt(outA, np.transpose((trc_pos['BOX_WAVE'][0, :], trc_pos['BOX_COUNTS'][0, :],
                                                    trc_pos['BOX_COUNTS_SIG'][0, :], trc_pos['OPT_WAVE'][0, :],
                                                    trc_pos['OPT_COUNTS'][0, :], trc_pos['OPT_COUNTS_SIG'][0, :])))
@@ -1224,16 +1259,16 @@ if __name__ == '__main__':
                         plt.plot(trc_pos['OPT_WAVE'][0, :], trc_pos['OPT_COUNTS_SKY'][0, :], 'g-',
                                  drawstyle='steps-mid')
         #        plt.show()
-        if mean_skycoeff:
+        if self._mean_skycoeff:
             embed()
             assert (False)
             # Load the sky coefficients
-            nfiles = 2 * len(matches)
+            nfiles = 2 * len(self._matches)
             nbasis = 3
             nspec, nspat = frame.shape
             all_coeffs = np.zeros((frame.shape[0], nbasis, nfiles))
             for ff in range(nfiles):
-                inname = procpath + "skycoeffs_{0:02d}.npy".format(ff)
+                inname = self._procpath + "skycoeffs_{0:02d}.npy".format(ff)
                 all_coeffs[:, :, ff] = np.load(inname)
             nodpos = np.array(
                 [1.0, -6.5, -1, 6.5, -5.5, 2.0, -2.0, 5.5, -5.0, 2.5, -2.5, 5.0, -4.5, 3, -3, 4.5, -3.5, 4.0, -4.0, 3.5,
@@ -1296,31 +1331,31 @@ if __name__ == '__main__':
             plt.subplot(212)
             plt.plot(allx[asrt], interpolate.splev(allx[asrt], spl2), 'r-')
             plt.show()
-            outname = procpath + "skycoeffs_splinefit_k3.npy"
+            outname = self._procpath + "skycoeffs_splinefit_k3.npy"
             np.save(outname, np.column_stack((spl1[0], spl1[1], spl2[0], spl2[1])))
-            outname = procpath + "skycoeffs_splinefit_k3_tiltimg.npy"
+            outname = self._procpath + "skycoeffs_splinefit_k3_tiltimg.npy"
             np.save(outname, allspecimg)
-            outname = procpath + "skycoeffs_splinefit_k3_lags.npy"
+            outname = self._procpath + "skycoeffs_splinefit_k3_lags.npy"
             np.save(outname, lagvals)
 
-    if step_wavecal_prelim:
-        usePath = altpath
-        # if use_diff: usePath = procpath
+    def step_wavecal_prelim(self):
+        usePath = self._altpath
+        # if self._use_diff: usePath = self._procpath
         rwf.wavecal_prelim(usePath)
         # rwf.wavecal_telluric(usePath)
 
-    if step_prepALIS:
-        out_wave, raw_specs = comb_prep(use_corrected=False)
+    def step_prepALIS(self):
+        out_wave, raw_specs = self.comb_prep(use_corrected=False)
         npix, nspec = out_wave.size, len(raw_specs)
-        out_flux = maskval * np.ones((npix, nspec))
-        out_flue = maskval * np.ones((npix, nspec))
+        out_flux = self._maskval * np.ones((npix, nspec))
+        out_flue = self._maskval * np.ones((npix, nspec))
         # Reject
-        raw_wav, raw_flx, raw_err, bpm = comb_reject(out_wave, raw_specs, use_corrected=False)
+        raw_wav, raw_flx, raw_err, bpm = self.comb_reject(out_wave, raw_specs, use_corrected=False)
         lminwv, lmaxwv = 10826.0, 10840.0
         fminwv, fmaxwv = 10827.0, 10839.0
         datlines, zerolines, strall = "", "", ""
-        usePath = altpath + "alt_"
-        if use_diff: usePath = procpath
+        usePath = self._altpath + "alt_"
+        if self._use_diff: usePath = self._procpath
         for sp in range(nspec):
             wave, flux, flue, fitr = raw_wav[sp, :], raw_flx[sp, :], raw_err[sp, :], 1 - bpm[sp, :]
             ww = np.where((wave > lminwv) & (wave < lmaxwv))
@@ -1339,14 +1374,14 @@ if __name__ == '__main__':
         print(zerolines)
         print(strall)
 
-    if step_wavecal_sky:
+    def step_wavecal_sky(self):
         # Start by loading and processing all of the target data
-        out_wave, raw_specs = comb_prep(use_corrected=False)
+        out_wave, raw_specs = self.comb_prep(use_corrected=False)
         npix, nspec = out_wave.size, len(raw_specs)
-        out_flux = maskval * np.ones((npix, nspec))
-        out_flue = maskval * np.ones((npix, nspec))
+        out_flux = self._maskval * np.ones((npix, nspec))
+        out_flue = self._maskval * np.ones((npix, nspec))
         # Reject
-        raw_wav, raw_flx, raw_err, bpm = comb_reject(out_wave, raw_specs, use_corrected=False)
+        raw_wav, raw_flx, raw_err, bpm = self.comb_reject(out_wave, raw_specs, use_corrected=False)
         lminwv, lmaxwv = 10826.0, 10840.0
         fminwv, fmaxwv = 10827.0, 10839.0
         datlines, zerolines, strall = "", "", ""
@@ -1354,10 +1389,10 @@ if __name__ == '__main__':
             wave, flux, flue, fitr = raw_wav[sp, :], raw_flx[sp, :], raw_err[sp, :], 1 - bpm[sp, :]
             ww = np.where((wave > lminwv) & (wave < lmaxwv))
             wf = np.where((wave < fminwv) | (wave > fmaxwv))
-            skyname = procpath + "spec1d_{0:02d}_{1:s}_sky.dat".format(sp // 2, nods[sp % 2])
+            skyname = self._procpath + "spec1d_{0:02d}_{1:s}_sky.dat".format(sp // 2, self._nods[sp % 2])
             sky_counts, sky_error = np.loadtxt(skyname, unpack=True, usecols=(1, 2))
             # Load the old and corrected wavelength scale
-            tmpnameAz = procpath + "tet02OriA_ALIS_spec{0:02d}_wzcorr.dat".format(sp)
+            tmpnameAz = self._procpath + "tet02OriA_ALIS_spec{0:02d}_wzcorr.dat".format(sp)
             out_waveAz, inwaveAz, flux = np.loadtxt(tmpnameAz, unpack=True, usecols=(0, 1, 2))
             wA = np.where(np.in1d(wave, inwaveAz))
             np.savetxt(skyname.replace("_sky", "_sky_wzcorr"),
@@ -1365,28 +1400,28 @@ if __name__ == '__main__':
             plt.plot(out_waveAz, sky_counts[wA], 'k-', drawstyle='steps-mid')
         plt.show()
 
-    if step_combspec:
-        out_wave, raw_specs = comb_prep(use_corrected=True)
+    def step_combspec(self):
+        out_wave, raw_specs = self.comb_prep(use_corrected=True)
         if step_combspec_rebin:
-            comb_rebin(out_wave, raw_specs)
+            self.comb_rebin(out_wave, raw_specs)
         else:
             wave_bins = out_wave.copy()
             npix, nspec = out_wave.size, len(raw_specs)
-            out_flux = maskval * np.ones((npix, nspec))
-            out_flue = maskval * np.ones((npix, nspec))
+            out_flux = self._maskval * np.ones((npix, nspec))
+            out_flue = self._maskval * np.ones((npix, nspec))
             # Reject
-            raw_wav, raw_flx, raw_err, bpm = comb_reject(out_wave, raw_specs, use_corrected=True)
+            raw_wav, raw_flx, raw_err, bpm = self.comb_reject(out_wave, raw_specs, use_corrected=True)
             # Find all good pixels and create the final histogram
             for ss in range(bpm.shape[0]):
                 spec_use = np.ones(bpm.shape, dtype=np.bool)
                 for mm in range(bpm.shape[0] - ss, bpm.shape[0]):
                     spec_use[mm, :] = False
-                out_wave, spec, specerr = comb_spectrum(wave_bins, raw_wav, raw_flx, raw_err, bpm, spec_use)
+                out_wave, spec, specerr = self.comb_spectrum(wave_bins, raw_wav, raw_flx, raw_err, bpm, spec_use)
                 fitr = np.zeros(out_wave.size)
                 fitr[np.where(
                     ((out_wave > 10827.0) & (out_wave < 10832.64)) | ((out_wave > 10833.16) & (out_wave < 10839)))] = 1
                 np.savetxt(
-                    procpath + "tet02_OriA_HeI10833_scaleErr_wzcorr_fitr_comb{0:02d}.dat".format(bpm.shape[0] - ss),
+                    self._procpath + "tet02_OriA_HeI10833_scaleErr_wzcorr_fitr_comb{0:02d}.dat".format(bpm.shape[0] - ss),
                     np.transpose((out_wave, spec, specerr, fitr)))
             # Save the final spectrum
             print("Saving output spectrum...")
@@ -1394,11 +1429,13 @@ if __name__ == '__main__':
                 fitr = np.zeros(out_wave.size)
                 fitr[np.where(
                     ((out_wave > 10827.0) & (out_wave < 10832.64)) | ((out_wave > 10833.16) & (out_wave < 10839)))] = 1
-                np.savetxt(procpath + "tet02_OriA_HeI10833_scaleErr_wzcorr_fitr.dat",
+                np.savetxt(self._procpath + "tet02_OriA_HeI10833_scaleErr_wzcorr_fitr.dat",
                            np.transpose((out_wave, spec, specerr_new, fitr)))
             else:
-                np.savetxt(procpath + "tet02_OriA_HeI10833_scaleErr_wzcorr_fitr.dat",
-                           np.transpose((out_wave, spec, specerr_new, fitr)))
+                print("ERROR... specerr_new does not exist")
+                embed()
+                # np.savetxt(self._procpath + "tet02_OriA_HeI10833_scaleErr_wzcorr_fitr.dat",
+                #            np.transpose((out_wave, spec, specerr_new, fitr)))
             if plotit or True:
                 for sp in range(nspec):
                     plt.plot(raw_wav[sp, :], raw_flx[sp, :], 'k-', drawstyle='steps-mid')
@@ -1408,14 +1445,14 @@ if __name__ == '__main__':
                 plt.plot(out_wave, specerr_new, 'r-', drawstyle='steps-mid')
                 plt.show()
 
-    if step_comb_sky:
-        out_wave, raw_specs = comb_prep(use_corrected=True, sky=True)
-        comb_rebin(out_wave, raw_specs, sky=True)
+    def step_comb_sky(self):
+        out_wave, raw_specs = self.comb_prep(use_corrected=True, sky=True)
+        self.comb_rebin(out_wave, raw_specs, sky=True)
 
-    if step_sample_NumExpCombine:
+    def step_sample_NumExpCombine(self):
         nsample = 100
         embed()
-        out_wave, raw_specs = comb_prep(use_corrected=True)
+        out_wave, raw_specs = self.comb_prep(use_corrected=True)
         nspec = len(raw_specs) - 4
         # Find all good pixels and create the final histogram
         snr_all, snr_all_adj = np.zeros(nspec), np.zeros(nspec)
@@ -1428,8 +1465,8 @@ if __name__ == '__main__':
                 raw_specs_samp = []
                 for mm in range(ss, nspec):
                     raw_specs_samp.append(raw_specs[ffs[mm]])
-                out_wave, spec, specerr = comb_rebin(out_wave, raw_specs_samp, save=False)
-                snr[nn], snradj[nn] = scale_variance(out_wave, spec, specerr, getSNR=True)
+                out_wave, spec, specerr = self.comb_rebin(out_wave, raw_specs_samp, save=False)
+                snr[nn], snradj[nn] = self.scale_variance(out_wave, spec, specerr, getSNR=True)
             ww = np.where(snr > 100)
             snr_all[nspec - ss - 1] = np.median(snr[ww])
             snr_all_err[nspec - ss - 1] = 1.4826 * np.median(np.abs(snr[ww] - np.median(snr[ww])))
@@ -1444,15 +1481,15 @@ if __name__ == '__main__':
             raw_specs_samp = []
             for mm in range(ss, nspec):
                 raw_specs_samp.append(raw_specs[ffs[mm]])
-            out_wave, spec, specerr = comb_rebin(out_wave, raw_specs_samp, save=False)
-            snr[nn], snradj[nn] = scale_variance(out_wave, spec, specerr, getSNR=True)
+            out_wave, spec, specerr = self.comb_rebin(out_wave, raw_specs_samp, save=False)
+            snr[nn], snradj[nn] = self.scale_variance(out_wave, spec, specerr, getSNR=True)
         ww = np.where(snr > 100)
         snr_all[1] = np.median(snr[ww])
         snr_all_err[1] = 1.4826 * np.median(np.abs(snr[ww] - np.median(snr[ww])))
         # The case for 1 frame
         snr, snradj = np.zeros(nspec), np.zeros(nspec)
         for ss in range(nspec):
-            snr[ss], snradj[ss] = scale_variance(raw_specs[ss].wavelength.value, raw_specs[ss].flux.value,
+            snr[ss], snradj[ss] = self.scale_variance(raw_specs[ss].wavelength.value, raw_specs[ss].flux.value,
                                                  raw_specs[ss].sig.value, getSNR=True)
         snr_all[0] = np.median(snr)
         snr_all_err[0] = 1.4826 * np.median(np.abs(snr - np.median(snr)))
@@ -1471,8 +1508,8 @@ if __name__ == '__main__':
         plt.show()
         # wave_bins = out_wave.copy()
         # npix, nspec = out_wave.size, len(raw_specs)
-        # out_flux = maskval*np.ones((npix, nspec))
-        # out_flue = maskval*np.ones((npix, nspec))
+        # out_flux = self._maskval*np.ones((npix, nspec))
+        # out_flue = self._maskval*np.ones((npix, nspec))
         # # Reject
         # raw_wav, raw_flx, raw_err, bpm = comb_reject(out_wave, raw_specs, use_corrected=True)
         # nspec = bpm.shape[0]
@@ -1495,3 +1532,37 @@ if __name__ == '__main__':
         #     snr_all_adj[nspec-ss-1] = np.mean(snradj)
         #     snr_all_adj_err[nspec-ss-1] = np.std(snradj)
         # np.savetxt("SNR_NumExpCombine.dat", np.transpose((snr_all, snr_all_err, snr_all_adj, snr_all_adj_err)))
+
+if __name__ == '__main__':
+    plotit = False
+    use_diff = False
+    step_listfiles = False  # List the files
+    step_pattern = False  # Generate an image of the detector pattern
+    step_makedarkfit, step_makedarkframe = False, False  # Make a dark image
+    step_makeflat = False  # Make a flatfield image
+    step_makearc = False  # Make an arc image
+    step_makediff = False  # Make difference and sum images
+    step_makecuts = False  # Make difference and sum images
+    step_trace, step_extract, step_skycoeffs, mean_skycoeff, step_basis, ext_sky = False, False, False, False, False, False  # Trace the spectrum and extract
+    step_wavecal_prelim = True  # Calculate a preliminary wavelength calibration solution
+    step_prepALIS = False  # Once the data are reduced, prepare a series of files to be used to fit the wavelength solution with ALIS
+    step_combspec, step_combspec_rebin = False, False  # First get the corrected data from ALIS, and then combine all exposures with this step.
+    step_wavecal_sky, step_comb_sky = False, False  # Wavelength calibrate all sky spectra and then combine
+    step_sample_NumExpCombine = False  # Combine a different number of exposures to estimate how S/N depends on the number of exposures combined.
+    
+    # Initialise the reduce class
+    thisred = reduce(use_diff=use_diff,
+                     step_listfiles=False,
+                     step_pattern=False,  # Generate an image of the detector pattern
+                     step_makedarkfit = False, step_makedarkframe = False,  # Make a dark image
+                     step_makeflat = False,  # Make a flatfield image
+                     step_makearc = False,  # Make an arc image
+                     step_makediff = False,  # Make difference and sum images
+                     step_makecuts = False,  # Make difference and sum images
+                     step_trace = False, step_extract = False, step_skycoeffs=False, mean_skycoeff=False, step_basis=False, ext_sky = False,  # Trace the spectrum and extract
+                     step_wavecal_prelim = True,  # Calculate a preliminary wavelength calibration solution
+                     step_prepALIS = False,  # Once the data are reduced, prepare a series of files to be used to fit the wavelength solution with ALIS
+                     step_combspec = False, step_combspec_rebin = False,  # First get the corrected data from ALIS, and then combine all exposures with this step.
+                     step_wavecal_sky = False, step_comb_sky = False,  # Wavelength calibrate all sky spectra and then combine
+                     step_sample_NumExpCombine = False)  # Combine a different number of exposures to estimate how S/N depends on the number of exposures combined.
+    thisred.run()
