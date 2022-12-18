@@ -12,14 +12,14 @@ def main():
                      step_makearc=False,  # Make an arc image
                      step_makediff=False,  # Make difference and sum images
                      step_makecuts=False,  # Make difference and sum images
-                     step_trace=False, step_extract=False, step_skycoeffs=False, mean_skycoeff=False, step_basis=False,
+                     step_trace=False, step_extract=False, step_basis=False,
                      ext_sky=False,  # Trace the spectrum and extract
                      step_wavecal_prelim=False,  # Calculate a preliminary wavelength calibration solution
                      step_prepALIS=False,
                      # Once the data are reduced, prepare a series of files to be used to fit the wavelength solution with ALIS
-                     step_combspec=False, step_combspec_rebin=False,
+                     step_combspec=False, step_combspec_rebin=True,
                      # First get the corrected data from ALIS, and then combine all exposures with this step.
-                     step_wavecal_sky=True, step_comb_sky=False,
+                     step_wavecal_sky=False, step_comb_sky=False,
                      # Wavelength calibrate all sky spectra and then combine
                      step_sample_NumExpCombine=False)  # Combine a different number of exposures to estimate how S/N depends on the number of exposures combined.
     thisred.makePaths(redux_path="/Users/rcooke/Work/Research/BBN/helium34/Absorption/2022_ESO_Survey/OrionNebula/CRIRES/")

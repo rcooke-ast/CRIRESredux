@@ -1,4 +1,6 @@
 import os
+import glob
+import pickle
 import numpy as np
 import astropy.io.fits as fits
 import astropy.units as units
@@ -96,6 +98,13 @@ class ReduceBase:
         self._step_comb_sky = step_comb_sky
         self._step_sample_NumExpCombine = step_sample_NumExpCombine
 
+        # Make these a bit simpler
+        if self._step_basis:
+            self._step_trace = True
+            self._step_extract = True
+        if self._step_combspec_rebin:
+            self._step_combspec = True
+
         self._matches = self.get_science_frames()
 
         self._numframes = len(self._matches)
@@ -118,6 +127,8 @@ class ReduceBase:
         self._altpath = self._redux_path + self._alt_folder
 
         # Check if paths exist, if not, make them
+        if not os.path.exists("redux_"+self._prefix):
+            os.mkdir("redux_"+self._prefix)
         if not os.path.exists(self._calspath):
             os.mkdir(self._calspath)
         if not os.path.exists(self._procpath):
@@ -432,14 +443,19 @@ class ReduceBase:
         return tiltimg
 
     def step_listfiles(self):
-        files = open("files.list").readlines()
+        filelist = "redux_"+self._prefix+"/files.list"
+        if os.path.exists(filelist):
+            files = open(filelist).readlines()
+        else:
+            files = glob.glob("Raw/CRIRE*.fits")
+            files.sort()
         for ff in range(len(files)):
-            fil = fits.open(self._datapath + files[ff].strip("\n"))
+            fil = fits.open(self._datapath + files[ff].lstrip("Raw/").strip("\n"))
             try:
                 print(files[ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'],
                       fil[0].header['HIERARCH ESO SEQ NODPOS'], fil[0].header['HIERARCH ESO SEQ NODTHROW'],
                       fil[0].header['EXPTIME'], fil[0].header['OBJECT'],
-                      fil[1].header['HIERARCH ESO DET self._chip self._gain'])
+                      fil[1].header['HIERARCH ESO DET CHIP GAIN'])
             except:
                 print(files[ff].strip("\n"), fil[0].header['OBJECT'], fil[0].header['EXPTIME'])
                 continue
@@ -465,7 +481,7 @@ class ReduceBase:
                 fil = fits.open(self._datapath + self._dark_files[gg][ff].strip("\n"))
                 print(self._dark_files[gg][ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'],
                       fil[0].header['EXPTIME'],
-                      fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET self._chip self._gain'])
+                      fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET CHIP GAIN'])
                 rawdata[:, :, gg, ff] = fil[1].data[self._slice]
                 if ff == 0: exptime[gg] = fil[0].header['EXPTIME']
                 assert (exptime[gg] == fil[0].header['EXPTIME'])
@@ -511,7 +527,7 @@ class ReduceBase:
                 fil = fits.open(self._datapath + self._dark_files[gg][ff].strip("\n"))
                 print(self._dark_files[gg][ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'],
                       fil[0].header['EXPTIME'],
-                      fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET self._chip self._gain'])
+                      fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET CHIP GAIN'])
                 rawdata[:, :, gg, ff] = fil[1].data[self._slice]
                 if ff == 0: exptime[gg] = fil[0].header['EXPTIME']
                 assert (exptime[gg] == fil[0].header['EXPTIME'])
@@ -548,7 +564,7 @@ class ReduceBase:
         for ff in range(len(self._flat_files)):
             fil = fits.open(self._datapath + self._flat_files[ff].strip("\n"))
             print(self._flat_files[ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'], fil[0].header['EXPTIME'],
-                  fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET self._chip self._gain'])
+                  fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET CHIP GAIN'])
             # Load the dark frame
             msdark = fits.open(self.get_darkname(self._masterdark_name, int(fil[0].header['EXPTIME'])))[0].data
             rawdata[:, :, ff] = fil[1].data[self._slice] - msdark
@@ -582,7 +598,7 @@ class ReduceBase:
         for ff in range(len(self._arc_files)):
             fil = fits.open(self._datapath + self._arc_files[ff].strip("\n"))
             print(self._arc_files[ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'], fil[0].header['EXPTIME'],
-                  fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET self._chip self._gain'])
+                  fil[0].header['OBJECT'], fil[1].header['HIERARCH ESO DET CHIP GAIN'])
             msdark = fits.open(self.get_darkname(self._masterdark_name, int(fil[0].header['EXPTIME'])))[0].data
             rawdata[:, :, ff] = fil[1].data[self._slice] - msdark
         # Sigma clip
@@ -791,7 +807,7 @@ class ReduceBase:
         #     opspl = interpolate.CubicSpline(xloc, cnts)
         return xloc, cnts
 
-    def iterate_bgfit(self, HIIresid, gpm_img, allspecimg, allspatimg, maxspatl, maxspatr):
+    def iterate_bgfit(self, HIIresid, gpm_img, allspecimg, allspatimg, maxspatl, maxspatr, idx):
         evpix = (allspecimg > 1400.0) & (allspecimg < 1950) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
         # Perform the b-spline fit
         """
@@ -831,7 +847,7 @@ class ReduceBase:
         if iopt >= 0: s >= 0
         w(i) > 0, i = 1, ..., m
         """
-        tsty = np.array([3, 5, 7])
+        tsty = np.array([3, 5, 7, 9,15])
         ev_spec, ev_spat = allspecimg[evpix], allspatimg[evpix]
         idxs = np.where(evpix)
         gpm_img_new = gpm_img.copy()
@@ -842,9 +858,9 @@ class ReduceBase:
             ty = np.append(np.ones(3) * ty[0], np.append(ty, ty[-1] * np.ones(3)))
             # Make tx
             nxest = int(3+np.sqrt(np.sum(fitpix)/2)) - 6
-            mdreg = np.arange(1613.0, 1730.0 - 0.9, 2.0)
-            wtmp = (mdreg > 1695) & (mdreg < 1705)
-            mdreg = np.sort(np.append(mdreg, 0.5*(mdreg[wtmp][1:]+mdreg[wtmp][:-1])))
+            mdreg = np.arange(1613.0, 1730.0 - 0.9, 2.5)
+            # wtmp = (mdreg > 1695) & (mdreg < 1705)
+            # mdreg = np.sort(np.append(mdreg, 0.5*(mdreg[wtmp][1:]+mdreg[wtmp][:-1])))
             loreg = np.linspace(1400.00919155, 1612.0, (nxest - mdreg.size) // 2)
             hireg = np.linspace(1730.0, 1949.99883592, (nxest - mdreg.size) // 2)
             tx = np.append(loreg, mdreg)
@@ -865,6 +881,9 @@ class ReduceBase:
             wbad = np.where((gpm_img_new) & (np.abs((resids - medfilt) * utils.inverse(madfilt)) > 10))
             print("Number of new masked pixels = ", wbad[0].size)
             gpm_img_new[wbad] = False
+        # Save the final version of the knots
+        # with open(self._procpath+'bgfitted_{0:02d}.knots'.format(idx), 'wb') as pickle_file:
+        #     pickle.dump(tck, pickle_file)
         if False:
             embed()
             plt.subplot(131)
@@ -892,12 +911,13 @@ class ReduceBase:
         modelstar = np.zeros(frame.shape)
         idealSN = np.zeros(frame.shape[0])
         coeffs = np.zeros((frame.shape[0], nbasis))
+        maxxloc = np.max(np.abs(xloc))
         for ss in range(frame.shape[0]):
             xdat = np.arange(frame.shape[1]) - spec.TRACE_SPAT[0, ss]
-            xfit = (xdat + np.max(xloc)) / np.max(xloc) - 1
+            xfit = (xdat + maxxloc) / maxxloc - 1
             yfit = frame[ss, :]
             wfit = ivar[ss, :]  # DONT CHANGE THIS WITHOUT CHANGING OUTFLUXBOX_ERR BELOW!!!
-            gd = np.where((np.abs(xfit) <= numpixfit / np.max(xloc)) & (
+            gd = np.where((np.abs(xfit) <= numpixfit / maxxloc) & (
                 gpm_img[ss, :]))  # Only include pixels that are defined within the spatial profile domain
             # Construct the vandermonde matrix
             vander = np.ones((xfit[gd].size, nbasis))
@@ -962,7 +982,6 @@ class ReduceBase:
         return HIIflux, outfluxbox, outfluxbox_err
 
     def basis_fit(self, extfrm_use, ivar_use, tilts, waveimg, spatimg, spec, idx, edges=None):
-        if idx==0: return
         if edges is None:
             print("Error, edges must be a two element list")
             assert (False)
@@ -971,7 +990,7 @@ class ReduceBase:
         onslit[:, :31] = False
         onslit[:, 269:] = False
         sigrej = 3
-        nbasis = 2  # 25
+        nbasis = 4  # 25
         binsize = 0.1
         nwindow = 50  # +/- 30 pixels is about the maximum window that can be used around the object trace when the nod is +/-6.5 arcseconds from the slit centre
         nspec, nspat = extfrm_use.shape
@@ -1051,7 +1070,7 @@ class ReduceBase:
                # plt.show()
         # Now perform the fit
         slice = np.meshgrid(np.arange(1600, 1750), np.arange(extfrm_use.shape[1]), indexing='ij')
-        trace_mask = np.abs(allspatimg) > 5.0
+        trace_mask = np.abs(allspatimg) > 3.0
         numiter = 3
         testing, subtesting = False, False  # Need to (1) True, True, then set the best test value; (2) False, True, then set the best sub test value; (3) False, False, once both test and subtests have been done
         if testing:
@@ -1059,14 +1078,16 @@ class ReduceBase:
             tst = np.arange(1, 15, dtype=float)
         else:
             # Insert the optimal value into the array below
-            tst = np.array([2.0], dtype=float)
+            tst = np.array([15.0], dtype=float)
         SN_spec, SN_abs = np.zeros(tst.size), np.zeros(tst.size)
         for tt in range(tst.size):
+            #trace_mask = np.abs(allspatimg) > tst[tt]
             bgfitted = np.zeros(extfrm_use.shape)
             gpm_img_new = gpm_img.copy()
+            #gpm_img_tmp = gpm_img.copy()
             for ii in range(numiter):
                 HIIresid, outfluxbox, outfluxbox_err = self.iterate_objfit(extfrm_use-bgfitted, ivar_use, gpm_img_new, spec, opspl, xloc, nbasis, numpixfit=tst[tt])
-                bgfitted_tmp, gpm_img_tmp = self.iterate_bgfit(HIIresid+bgfitted, gpm_img_new & trace_mask, allspecimg, allspatimg, nwindow_left, nwindow_right)
+                bgfitted_tmp, gpm_img_tmp = self.iterate_bgfit(HIIresid+bgfitted, gpm_img_new & trace_mask, allspecimg, allspatimg, nwindow_left, nwindow_right, idx)
                 bgfitted = bgfitted_tmp.copy()
                 # print("(box) S/N = ", np.mean(outfluxbox[1338:1448]) / np.std(outfluxbox[1338:1448]))
                 # print("(box) S/N ab = ", np.mean(outfluxbox[1706:1726]) / np.std(outfluxbox[1706:1726]))
@@ -1100,10 +1121,67 @@ class ReduceBase:
                 boxwght = spec.BOX_COUNTS.copy().flatten()
                 extract_boxcar(np.ones_like(profile_img), ivar_use, gpm_img_new, allspecimg, np.zeros_like(profile_img), spec)
                 boxskywght = spec.BOX_COUNTS.copy().flatten()
+                # embed()
+                # assert False
                 extract_boxcar(extfrm_use, ivar_use, gpm_img_new, allspecimg, bgfitted, spec)
-                spec_boxcar_flx = spec.BOX_COUNTS.flatten() * utils.inverse(boxwght)
-                spec_boxcar_sig = spec.BOX_COUNTS_SIG.flatten() * utils.inverse(boxwght)
-                spec_boxcar_sky = spec.BOX_COUNTS_SKY.flatten() * utils.inverse(boxskywght)
+                if False:
+                    thisboxpix = spec.BOX_WAVE.flatten()
+                    all_boxcar_waves = np.zeros((boxwght.size, self._numspec))
+                    all_boxcar_specs = np.zeros((boxwght.size, self._numspec))
+                    all_boxcar_sigma = np.zeros((boxwght.size, self._numspec))
+                    all_boxcar_bgrnd = np.zeros((boxwght.size, self._numspec))
+                    out_wave, raw_specs = self.comb_prep(use_corrected=False)
+                    raw_wav, raw_flx, raw_err, bpm = self.comb_reject(out_wave, raw_specs, use_corrected=False)
+                    thiswave = raw_wav[idx, :]
+                    tmpnameAz = self._procpath + self._prefix + "_ALIS_spec{0:02d}_wzcorr.dat".format(idx)
+                    out_waveAz, inwaveAz = np.loadtxt(tmpnameAz, unpack=True, usecols=(0, 1))
+                    wA = np.where(np.in1d(thiswave, inwaveAz))
+                    coeff = np.polyfit(thisboxpix[wA], out_waveAz, 1)
+                    waveimg = np.polyval(coeff, allspecimg)
+                    ref_exptime, _ = self.get_exptime(idx//2)
+                    for sp in range(self._numspec):
+                        this_exptime, _ = self.get_exptime(sp//2)
+                        # convert pixel to wavelength for this spectrum
+                        thiswave = raw_wav[sp, :]
+                        tmpnameAz = self._procpath + self._prefix + "_ALIS_spec{0:02d}_wzcorr.dat".format(sp)
+                        out_waveAz, inwaveAz = np.loadtxt(tmpnameAz, unpack=True, usecols=(0, 1))
+                        wA = np.where(np.in1d(thiswave, inwaveAz))
+                        coeff = np.polyfit(out_waveAz, thisboxpix[wA], 1)
+                        this_allspecimg = np.polyval(coeff, waveimg)
+                        # Load the bspline and the parameters needed for the fit
+                        with open(self._procpath+'bgfitted_{0:02d}.knots'.format(sp), 'rb') as knots_file:
+                            knots = pickle.load(knots_file)
+                        evpix = (this_allspecimg > 1400.0) & (this_allspecimg < 1950) & (allspatimg > -nwindow_left) & (allspatimg < nwindow_right)
+                        ev_spec, ev_spat = this_allspecimg[evpix], allspatimg[evpix]
+                        idxs = np.where(evpix)
+                        # Make a new background image
+                        bgImage = np.zeros_like(HIIresid)
+                        for ii in range(ev_spec.size):
+                            bgImage[idxs[0][ii], idxs[1][ii]] = (ref_exptime/this_exptime)*interpolate.bisplev(ev_spec[ii], ev_spat[ii], knots)
+                        extract_boxcar(extfrm_use, ivar_use, gpm_img_new, allspecimg, bgImage, spec)
+                        all_boxcar_bgrnd[:, sp] = spec.BOX_COUNTS_SKY.flatten() * utils.inverse(boxskywght)
+                        all_boxcar_specs[:, sp] = spec.BOX_COUNTS.flatten() * utils.inverse(boxwght)
+                        all_boxcar_sigma[:, sp] = spec.BOX_COUNTS_SIG.flatten() * utils.inverse(boxwght)
+                        all_boxcar_waves[:, sp] = spec.BOX_WAVE.flatten()
+                    if False:
+                        avg_wave = np.mean(all_boxcar_waves, axis=1)
+                        avg_flux = np.mean(all_boxcar_specs, axis=1)
+                        avg_disp = np.std(all_boxcar_specs, axis=1)
+                        plt.fill_between(avg_wave, avg_flux-avg_disp, avg_flux+avg_disp, color='k', alpha=0.5)
+                        for sp in range(self._numspec):
+                            plt.plot(all_boxcar_waves[:, sp], all_boxcar_specs[:, sp], 'b-', drawstyle='steps-mid')
+                        plt.plot(all_boxcar_waves[:, idx], all_boxcar_specs[:, idx], 'r-', drawstyle='steps-mid')
+                        plt.plot(avg_wave, avg_flux, 'k-', drawstyle='steps-mid')
+                        plt.show()
+                    spec_boxcar_wav = all_boxcar_waves[:, idx]
+                    spec_boxcar_flx = np.mean(all_boxcar_specs, axis=1)
+                    spec_boxcar_sig = all_boxcar_sigma[:, idx]
+                    spec_boxcar_sky = np.mean(all_boxcar_bgrnd, axis=1)
+                else:
+                    spec_boxcar_flx = spec.BOX_COUNTS.flatten() * utils.inverse(boxwght)
+                    spec_boxcar_sig = spec.BOX_COUNTS_SIG.flatten() * utils.inverse(boxwght)
+                    spec_boxcar_sky = spec.BOX_COUNTS_SKY.flatten() * utils.inverse(boxskywght)
+                    spec_boxcar_wav = spec.BOX_WAVE.flatten()
 #                plt.plot(spec_boxcar)
                 xplot = np.arange(1338,1448)
                 modl = np.polyval(np.polyfit(xplot,spec_boxcar_flx[1338:1448],1), xplot)
@@ -1142,8 +1220,7 @@ class ReduceBase:
         # if self._use_diff: outPath = self._procpath
         outPath = self._procpath
         outA = outPath + "spec1d_{0:02d}.dat".format(idx)
-        wav = spec.BOX_WAVE.flatten()
-        np.savetxt(outA, np.column_stack((wav, spec_boxcar_flx, spec_boxcar_sig, spec_boxcar_sky)))
+        np.savetxt(outA, np.column_stack((spec_boxcar_wav, spec_boxcar_flx, spec_boxcar_sig, spec_boxcar_sky)))
         return
 
     def step_trace(self):
@@ -1193,7 +1270,7 @@ class ReduceBase:
             datasec_img = np.ones_like(frame)
             rn2img = procimg.rn2_frame(datasec_img, ronoise)
             darkcurr = 0.03
-            etim, exptime = self.get_exptime(ff)
+            exptime, etim = self.get_exptime(ff)
             msflat = fits.open(self._masterflat_name)[0].data.T
             msdark = fits.open(self.get_darkname(self._masterdark_name, etim))[0].data.T
             basevar = procimg.base_variance(rn2img, darkcurr=darkcurr, exptime=exptime)
