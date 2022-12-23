@@ -3,6 +3,8 @@ from reduce_base import ReduceBase
 
 def main():
     # Initialise the reduce class
+    step1 = True
+    step2 = not step1
     thisred = Reduce(prefix="tet01OriA",
                      use_diff=False,
                      step_listfiles=False,
@@ -12,12 +14,12 @@ def main():
                      step_makearc=False,  # Make an arc image
                      step_makediff=False,  # Make difference and sum images
                      step_makecuts=False,  # Make difference and sum images
-                     step_trace=False, step_extract=False, step_basis=False,
+                     step_trace=False, step_extract=False, step_basis=step1,
                      ext_sky=False,  # Trace the spectrum and extract
-                     step_wavecal_prelim=False,  # Calculate a preliminary wavelength calibration solution
-                     step_prepALIS=False,
+                     step_wavecal_prelim=step1,  # Calculate a preliminary wavelength calibration solution
+                     step_prepALIS=step1,
                      # Once the data are reduced, prepare a series of files to be used to fit the wavelength solution with ALIS
-                     step_combspec=False, step_combspec_rebin=True,
+                     step_combspec=False, step_combspec_rebin=step2,
                      # First get the corrected data from ALIS, and then combine all exposures with this step.
                      step_wavecal_sky=False, step_comb_sky=False,
                      # Wavelength calibrate all sky spectra and then combine

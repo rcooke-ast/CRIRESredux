@@ -66,7 +66,7 @@ class ReduceBase:
         self._gain = 2.15  # This value comes from the header
         self._chip = 1  # self._chip can be 1, 2, or 3
         self._slice = np.meshgrid(np.arange(310, 600), np.arange(2048), indexing='ij')
-        self._polyord = 10  # Polynomial order used to trace the spectra
+        self._polyord = 5  # Polynomial order used to trace the spectra
         self._nods = ['A', 'B']
         self._velstep = 1.5  # Sample the FWHM by ~2.5 pixels
         self._maskval = -99999999  # Masked value for combining data
@@ -242,8 +242,9 @@ class ReduceBase:
                 raw_flx[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].flux
                 raw_err[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].sig
             else:
-                raw_flx[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].flux / np.median(raw_specs[sp].flux)
-                raw_err[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].sig / np.median(raw_specs[sp].flux)
+                medval = np.median(raw_specs[sp].flux[raw_specs[sp].flux != 0.0])
+                raw_flx[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].flux / medval
+                raw_err[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].sig / medval
         # Mask bad pixels
         for pp in range(wave_bins.size - 1):
             pixf = np.array([])
@@ -392,54 +393,77 @@ class ReduceBase:
     def get_darkname(self, basename, tim):
         return basename.replace(".fits", f"_{tim}s.fits")
 
-    def trace_tilt(self, objtrc, trcnum=50, plotit=False):
+    def trace_tilt(self, objtrc, trcnum=50, plotit=False, objfrm=None):
         """
         trcnum = the number of spatial pixels to trace either side of the object trace (objtrc)
         """
         msarc = fits.open(self._masterarc_name)[0].data.T
-        medfilt = medfilt2d(msarc, kernel_size=(1, 7))
+        if objfrm is None:
+            medfilt = medfilt2d(msarc, kernel_size=(1, 7))
+        else:
+            medfilt = medfilt2d(objfrm, kernel_size=(1, 7))
         # Find the peak near the trace
         # 1679, 145
         nfit = 0
         for ff in range(-nfit, nfit + 1):
             #        idx = np.arange(1679-17+35*ff,1679+17+35*ff)
-            idx = np.arange(1644 - 17 + 35 * ff, 1644 + 17 + 35 * ff)
+            if objfrm is None:
+                idx = np.arange(1644 - 17 + 35 * ff, 1644 + 17 + 35 * ff)
+                trcnum_use = trcnum
+            else:
+                idx = np.arange(1699 - 17, 1699 + 17)
+                trcnum_use = trcnum-2
             amax = idx[np.argmax(medfilt[(idx, np.round(objtrc).astype(int)[idx])])]
             xpos = int(np.round(objtrc[amax]))
-            allcen = np.zeros(1 + 2 * trcnum)
+            allcen = np.zeros(1 + 2 * trcnum_use)
             # First trace one way
             this_amax = amax
-            for ss in range(0, trcnum + 1):
+            for ss in range(0, trcnum_use + 1):
                 idx = np.arange(this_amax - 5, this_amax + 5)
                 thisspec = medfilt[(idx, xpos + ss)]
+                if np.all(thisspec==0.0): continue
                 coeff = np.polyfit(idx, thisspec, 2)
                 newmax = -0.5 * coeff[1] / coeff[0]
-                allcen[trcnum + ss] = newmax
+                allcen[trcnum_use + ss] = newmax
                 this_amax = int(np.round(newmax))
             # Now trace the other way
             this_amax = amax
-            for ss in range(0, trcnum):
+            for ss in range(0, trcnum_use):
                 idx = np.arange(this_amax - 5, this_amax + 5)
                 thisspec = medfilt[(idx, xpos - ss - 1)]
+                if np.all(thisspec == 0.0): continue
                 coeff = np.polyfit(idx, thisspec, 2)
                 newmax = -0.5 * coeff[1] / coeff[0]
-                allcen[trcnum - ss - 1] = newmax
+                allcen[trcnum_use - ss - 1] = newmax
                 this_amax = int(np.round(newmax))
             # Now perform a fit to the tilt
-            xdat = np.arange(xpos - trcnum, xpos + trcnum + 1)
+            xdat = np.arange(xpos - trcnum_use, xpos + trcnum_use + 1)
             coeff = np.polyfit(xdat, allcen, 2)
             model = np.polyval(coeff, xdat)
             modcen = np.polyval(coeff, objtrc[amax])
             coeff = np.polyfit(xdat, modcen - allcen, 2)
             if plotit:
-                #             plt.plot(xdat, allcen, 'b')
-                #             plt.plot(xdat, model, 'r-')
+                plt.plot(xdat, allcen, 'b')
+                plt.plot(xdat, model, 'r-')
                 plt.plot(xdat, allcen - model)
         plt.show()
         # Generate a tilt image
         spatimg = np.arange(msarc.shape[1])[None, :].repeat(msarc.shape[0], axis=0)
         specimg = np.arange(msarc.shape[0])[:, None].repeat(msarc.shape[1], axis=1)
         tiltimg = specimg + np.polyval(coeff, spatimg)
+
+        if False:
+            tiltimgarc = specimg + np.polyval(coeffarc, spatimg)
+            tmp = np.where(np.abs((spatimg - objtrc[:,None]).flatten())<20)
+            plt.subplot(211)
+            plt.scatter(tiltimg.flatten()[tmp], objfrm.flatten()[tmp], c=spatimg.flatten()[tmp], s=0.1)
+            plt.xlim(1650, 1750)
+            plt.ylim(0, 10000)
+            plt.subplot(212)
+            plt.scatter(tiltimgarc.flatten()[tmp], objfrm.flatten()[tmp], c=spatimg.flatten()[tmp], s=0.1)
+            plt.xlim(1650, 1750)
+            plt.ylim(0, 10000)
+            plt.show()
         return tiltimg
 
     def step_listfiles(self):
@@ -741,7 +765,7 @@ class ReduceBase:
 
         # warn on rank reduction
         if rank != order and not full:
-            print("WARNING :: The fit may be poorly conditioned")
+            pass#print("WARNING :: The fit may be poorly conditioned")
 
         return c, Vbase
 
@@ -773,41 +797,9 @@ class ReduceBase:
             print(f"Iteration {ii} :: Number of new bad pixels = {nnew}... total number of masked pixels = {nmask}")
         return gpm_img
 
-    def object_profile(self, allflux, allspat, allgpmtmp):
-        allgpm = allgpmtmp.copy()
-        sigrej = 3.0
-        binsize = 0.1
-        bins = np.arange(-binsize / 2 - 50.0, 50.0 + binsize, binsize)
-        inds = np.digitize(allspat, bins)
-        # Mask based on object profile
-        ii, nmask = 0, -1
-        while (nmask != 0):
-            # Go through and mask pixels
-            nmask = 0
-            for bb in range(bins.size):
-                thisbin = (inds == bb + 1) & (allgpm)
-                ww = np.where(thisbin)
-                med = np.median(allflux[ww])
-                mad = 1.4826 * np.median(np.abs(med - allflux[ww]))
-                wbad = np.where(thisbin & (np.abs((allflux - med) / mad) > sigrej))
-                allgpm[wbad] = False
-                nmask += wbad[0].size
-            ii += 1
-            print(f"Iteration {ii} :: Number of new bad pixels = {nmask}")
-        # Calculate the object profile (used for the first basis vector)
-        gpm = np.where(allgpm)
-        # First estimate of object profile
-        cnts, _ = np.histogram(allspat[gpm], bins=bins, weights=allflux[gpm])
-        norm, _ = np.histogram(allspat[gpm], bins=bins)
-        cnts *= utils.inverse(norm)
-        # Calculate the step width (used for the second basis vector)
-        xloc = 0.5 * (bins[1:] + bins[:-1])
-        nrmcnts = np.sum(cnts)
-        cnts /= nrmcnts
-        #     opspl = interpolate.CubicSpline(xloc, cnts)
-        return xloc, cnts
-
-    def iterate_bgfit(self, HIIresid, gpm_img, allspecimg, allspatimg, maxspatl, maxspatr, idx):
+    def object_profile(self, allflux, allivar, allspecimg, allspatimg, gpm_img, maxspatl, maxspatr, full=False):
+        # embed()
+        # assert False
         evpix = (allspecimg > 1400.0) & (allspecimg < 1950) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
         # Perform the b-spline fit
         """
@@ -847,12 +839,102 @@ class ReduceBase:
         if iopt >= 0: s >= 0
         w(i) > 0, i = 1, ..., m
         """
-        tsty = np.array([3, 5, 7, 9,15])
+        tsty = np.array([2, 3])
         ev_spec, ev_spat = allspecimg[evpix], allspatimg[evpix]
         idxs = np.where(evpix)
         gpm_img_new = gpm_img.copy()
         for tt in range(tsty.size):
-            fitpix = gpm_img_new & evpix
+            if full:
+                fitpix = (gpm_img_new) & (((allspecimg > 1700) & (allspecimg < 1950)) | ((allspecimg > 1400) & (allspecimg < 1610))) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
+            else:
+                fitpix = (gpm_img_new) & (((allspecimg > 1750) & (allspecimg < 1950)) | ((allspecimg > 1400) & (allspecimg < 1600))) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
+            # Make ty
+            ty = np.linspace(1400, 1950, tsty[tt])
+            ty = np.append(np.ones(3) * ty[0], np.append(ty, ty[-1] * np.ones(3)))
+            # Make tx
+            nxest = int(3+np.sqrt(np.sum(fitpix)/2)) - 6
+            # mdreg = np.arange(-2.0, 2.1, 0.5)
+            # # wtmp = (mdreg > 1695) & (mdreg < 1705)
+            # # mdreg = np.sort(np.append(mdreg, 0.5*(mdreg[wtmp][1:]+mdreg[wtmp][:-1])))
+            # lreg = np.arange(np.min(allspatimg[fitpix]), -3.0, 2.0)
+            # rreg = np.linspace(3.0, np.max(allspatimg[fitpix]), lreg.size)
+            # #np.linspace(1730.0, 1949.99883592, (nxest - mdreg.size) // 2)
+            # tx = np.append(lreg, mdreg)
+            # tx = np.append(tx, rreg)
+            # Pad the ticks with repeated starting points
+            tx = np.linspace(np.min(allspatimg[fitpix]), np.max(allspatimg[fitpix]), nxest)
+            tx = np.append(np.ones(3) * tx[0], np.append(tx, tx[-1] * np.ones(3)))
+            try:
+                tck = interpolate.bisplrep(allspatimg[fitpix], allspecimg[fitpix], allflux[fitpix], w=allivar[fitpix], task=-1, tx=tx, ty=ty)
+            except:
+                embed()
+                assert (False)
+            outImage = np.zeros_like(allflux)
+            for ii in range(ev_spec.size):
+                outImage[idxs[0][ii], idxs[1][ii]] = interpolate.bisplev(ev_spat[ii], ev_spec[ii], tck)
+            # Reject deviant pixels
+            tst = (allflux - outImage) * np.sqrt(allivar)
+            gpm_img_new[gpm_img_new & (np.abs(tst > 20))] = False
+        # Normalise
+        outImage *= utils.inverse(np.sum(outImage, axis=1)[:, None])
+        if False:
+            plt.subplot(211)
+            plt.scatter(allspatimg[idxs], outImage[idxs], c=allspecimg[idxs], s=0.1)
+            plt.subplot(212)
+            plt.scatter(allspatimg[idxs], outImage[idxs], c=allspecimg[idxs], s=0.1)
+            plt.scatter(allspatimg[idxs], allflux[idxs], c=allspecimg[idxs], s=0.1)
+            plt.show()
+            plt.scatter(allspatimg[idxs], (allflux[idxs] - outImage[idxs])*np.sqrt(allivar[idxs]), c=allspecimg[idxs], s=0.1)
+            plt.show()
+            embed()
+        return outImage
+
+    def iterate_bgfit(self, HIIresid, gpm_img, allspecimg, allspatimg, maxspatl, maxspatr, idx, trace_gpm, plotit=False):
+        evpix = (allspecimg > 1400.0) & (allspecimg < 1950) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
+        # Perform the b-spline fit
+        """
+        iopt,kx,ky,m=          -1     ,      3     ,      3   ,    54010
+        nxest,nyest,nmax=         167      ,   167      ,   167
+        lwrk1,lwrk2,kwrk=    30936256 ,   17376779  ,     79610
+        xb,xe,yb,ye=   1400.0091915489554   ,     1949.9988359224126     ,  -49.999699324369431     ,   49.997673302888870
+        eps,s =   9.9999999999999998E-017 ,  53681.336037874549
+        nx, ny = tx.size, ty.size
+        u = nxest - kx - 1
+        v = nyest - ky - 1
+        km = max(kx, ky) + 1
+        ne = max(nxest, nyest)
+        bx, by = kx*v + ky + 1, ky*u + kx + 1
+        b1, b2 = bx, bx + v - ky
+        if bx > by:
+            b1, b2 = by, by + u - kx
+
+        [- 1 <= iopt <= 1,
+        1 <= kx,
+        ky <= 5,
+        m >= (kx + 1) * (ky + 1),
+        nxest >= 2 * kx + 2,
+        nyest >= 2 * ky + 2,
+        0 < eps < 1,
+        nmax >= nxest,
+        nmax >= nyest,
+        lwrk1 >= u * v * (2 + b1 + b2) + 2 * (u + v + km * (m + ne) + ne - kx - ky) + b2 + 1
+        kwrk >= m + (nxest - 2 * kx - 1) * (nyest - 2 * ky - 1),
+        np.all((xb <= allspecimg[fitpix]) & (allspecimg[fitpix] <= xe)),
+        np.all((yb <= allspatimg[fitpix]) & (allspatimg[fitpix] <= ye))]
+        if iopt == -1:
+            print(2 * kx + 2 <= nx <= nxest)
+            print(2 * ky + 2 <= ny <= nyest)
+        xb < tx(kx + 2) < tx(kx + 3) < ... < tx(nx - kx - 1) < xe
+        yb < ty(ky + 2) < ty(ky + 3) < ... < ty(ny - ky - 1) < ye
+        if iopt >= 0: s >= 0
+        w(i) > 0, i = 1, ..., m
+        """
+        tsty = np.array([3, 4])
+        ev_spec, ev_spat = allspecimg[evpix], allspatimg[evpix]
+        idxs = np.where(evpix)
+        gpm_img_new = gpm_img.copy()
+        for tt in range(tsty.size):
+            fitpix = gpm_img_new & evpix & trace_gpm
             # Make ty
             ty = np.linspace(-maxspatl, maxspatr, tsty[tt])
             ty = np.append(np.ones(3) * ty[0], np.append(ty, ty[-1] * np.ones(3)))
@@ -861,8 +943,8 @@ class ReduceBase:
             mdreg = np.arange(1613.0, 1730.0 - 0.9, 2.5)
             # wtmp = (mdreg > 1695) & (mdreg < 1705)
             # mdreg = np.sort(np.append(mdreg, 0.5*(mdreg[wtmp][1:]+mdreg[wtmp][:-1])))
-            loreg = np.linspace(1400.00919155, 1612.0, (nxest - mdreg.size) // 2)
-            hireg = np.linspace(1730.0, 1949.99883592, (nxest - mdreg.size) // 2)
+            loreg = np.linspace(np.min(allspecimg[fitpix]), 1612.0, (nxest - mdreg.size) // 2)
+            hireg = np.linspace(1730.0, np.max(allspecimg[fitpix]), (nxest - mdreg.size) // 2)
             tx = np.append(loreg, mdreg)
             tx = np.append(tx, hireg)
             # Pad the ticks with repeated starting points
@@ -878,21 +960,23 @@ class ReduceBase:
             resids = outImage - HIIresid
             medfilt = medfilt2d(resids, kernel_size=(7, 1))
             madfilt = 1.4826 * medfilt2d(np.abs(resids - medfilt), kernel_size=(7, 1))
-            wbad = np.where((gpm_img_new) & (np.abs((resids - medfilt) * utils.inverse(madfilt)) > 10))
+            wbad = np.where((gpm_img_new) & (trace_gpm) & (np.abs((resids - medfilt) * utils.inverse(madfilt)) > 10))
             print("Number of new masked pixels = ", wbad[0].size)
             gpm_img_new[wbad] = False
         # Save the final version of the knots
-        # with open(self._procpath+'bgfitted_{0:02d}.knots'.format(idx), 'wb') as pickle_file:
-        #     pickle.dump(tck, pickle_file)
-        if False:
-            embed()
+        with open(self._procpath+'bgfitted_{0:02d}.knots'.format(idx), 'wb') as pickle_file:
+            pickle.dump(tck, pickle_file)
+        if plotit:
+            #slice = np.meshgrid(np.arange(outImage.shape[0]), np.arange(outImage.shape[1]), indexing='ij')
+            slice = np.meshgrid(np.arange(1400, 1900), np.arange(outImage.shape[1]), indexing='ij')
             plt.subplot(131)
-            plt.imshow(outImage, vmin=0, vmax=10000, aspect=0.3)
+            plt.imshow(outImage[slice], vmin=0, vmax=10000)
             plt.subplot(132)
-            plt.imshow(HIIresid, vmin=0, vmax=10000, aspect=0.3)
+            plt.imshow(HIIresid[slice], vmin=0, vmax=10000)
             plt.subplot(133)
-            plt.imshow(outImage - HIIresid, vmin=-100, vmax=100, aspect=0.3)
+            plt.imshow(outImage[slice] - HIIresid[slice], vmin=-300, vmax=300)
             plt.show()
+            embed()
         return outImage, gpm_img_new
         # from pypeit import flatfield
         # from pypeit.spectrographs.util import load_spectrograph
@@ -901,7 +985,7 @@ class ReduceBase:
         # pixelFlatField = flatfield.FlatField(fitimage, spectrograph,
         #                                      par['flatfield'], slits, wavetilts, wv_calib)
 
-    def iterate_objfit(self, frame, ivar, gpm_img, spec, opspl, xloc, nbasis, numpixfit=10):
+    def iterate_objfit(self, frame, ivar, gpm_img, spec, opspl, maxspatl, maxspatr, nbasis, numpixfit=10):
         outfluxb = np.zeros(frame.shape[0])
         outfluxb_err = np.zeros(frame.shape[0])
         outfluxbox = np.zeros(frame.shape[0])
@@ -911,17 +995,16 @@ class ReduceBase:
         modelstar = np.zeros(frame.shape)
         idealSN = np.zeros(frame.shape[0])
         coeffs = np.zeros((frame.shape[0], nbasis))
-        maxxloc = np.max(np.abs(xloc))
+        maxxloc = max(maxspatl, maxspatr)
         for ss in range(frame.shape[0]):
             xdat = np.arange(frame.shape[1]) - spec.TRACE_SPAT[0, ss]
             xfit = (xdat + maxxloc) / maxxloc - 1
             yfit = frame[ss, :]
             wfit = ivar[ss, :]  # DONT CHANGE THIS WITHOUT CHANGING OUTFLUXBOX_ERR BELOW!!!
-            gd = np.where((np.abs(xfit) <= numpixfit / maxxloc) & (
-                gpm_img[ss, :]))  # Only include pixels that are defined within the spatial profile domain
+            gd = np.where((xdat > -maxspatl) & (xdat < maxspatr) & (gpm_img[ss, :]))  # Only include pixels that are defined within the spatial profile domain
             # Construct the vandermonde matrix
             vander = np.ones((xfit[gd].size, nbasis))
-            vander[:, 0] = opspl(xdat[gd])
+            vander[:, 0] = opspl[ss, :][gd]# opspl(xdat[gd])
             vander[:, 1:] = np.polynomial.legendre.legvander(xfit[gd], nbasis - 2)
             c, cov = self.basis_fitter(xfit[gd], yfit[gd], vander.copy(), w=wfit[gd], debug=False)  # ss==1000)
             coeffs[ss, :] = c.copy()
@@ -929,7 +1012,7 @@ class ReduceBase:
             ccont[1] = 0
             gdc = np.where((np.abs(xfit) <= 1.0))  # Only include pixels that are defined within the spatial profile domain
             vanderc = np.ones((xfit[gdc].size, nbasis))
-            vanderc[:, 0] = opspl(xdat[gdc])
+            vanderc[:, 0] = opspl[ss, :][gdc]#opspl(xdat[gdc])
             vanderc[:, 1:] = np.polynomial.legendre.legvander(xfit[gdc], nbasis - 2)  # The rest of the basis are the odd Legendre polynomials
             HIIflux[ss, gdc[0]] = frame[ss, gdc[0]] - np.dot(vanderc, c * np.append(1, np.zeros(nbasis - 1)))
             model[ss, gd[0]] = np.dot(vander, c)
@@ -981,7 +1064,42 @@ class ReduceBase:
             plt.show()
         return HIIflux, outfluxbox, outfluxbox_err
 
+    def objprof2D(self, allspecimg, allimg, extfrm_use, gpm_img, maxspatl, maxspatr):
+        tsty = np.array([3, 7, 21])
+        ev_spec, ev_spat = allspecimg[evpix], allspatimg[evpix]
+        idxs = np.where(evpix)
+        gpm_img_new = gpm_img.copy()
+        for tt in range(tsty.size):
+            fitpix = gpm_img_new & evpix
+            # Make ty
+            ty = np.linspace(-maxspatl, maxspatr, tsty[tt])
+            ty = np.append(np.ones(3) * ty[0], np.append(ty, ty[-1] * np.ones(3)))
+            # Make tx
+            nxest = int(3+np.sqrt(np.sum(fitpix)/2)) - 6
+            mdreg = np.arange(1613.0, 1730.0 - 0.9, 2.5)
+            # wtmp = (mdreg > 1695) & (mdreg < 1705)
+            # mdreg = np.sort(np.append(mdreg, 0.5*(mdreg[wtmp][1:]+mdreg[wtmp][:-1])))
+            loreg = np.linspace(1400.00919155, 1612.0, (nxest - mdreg.size) // 2)
+            hireg = np.linspace(1730.0, 1949.99883592, (nxest - mdreg.size) // 2)
+            tx = np.append(loreg, mdreg)
+            tx = np.append(tx, hireg)
+            # Pad the ticks with repeated starting points
+            tx = np.append(np.ones(3) * tx[0], np.append(tx, tx[-1] * np.ones(3)))
+            try:
+                tck = interpolate.bisplrep(allspecimg[fitpix], allspatimg[fitpix], HIIresid[fitpix], task=-1, tx=tx, ty=ty)
+            except:
+                embed()
+                assert (False)
+
     def basis_fit(self, extfrm_use, ivar_use, tilts, waveimg, spatimg, spec, idx, edges=None):
+        # print("BIG ERROR!!! DELETE THIS RETURN STATEMENT")
+        # print("BIG ERROR!!! DELETE THIS RETURN STATEMENT")
+        # print("BIG ERROR!!! DELETE THIS RETURN STATEMENT")
+        # print("BIG ERROR!!! DELETE THIS RETURN STATEMENT")
+        # print("BIG ERROR!!! DELETE THIS RETURN STATEMENT")
+        # print("BIG ERROR!!! DELETE THIS RETURN STATEMENT")
+        # print("BIG ERROR!!! DELETE THIS RETURN STATEMENT")
+        # if idx==0: return
         if edges is None:
             print("Error, edges must be a two element list")
             assert (False)
@@ -990,13 +1108,12 @@ class ReduceBase:
         onslit[:, :31] = False
         onslit[:, 269:] = False
         sigrej = 3
-        nbasis = 4  # 25
+        nbasis = 7  # 25
         binsize = 0.1
-        nwindow = 50  # +/- 30 pixels is about the maximum window that can be used around the object trace when the nod is +/-6.5 arcseconds from the slit centre
+        nwindow = 20  # +/- 30 pixels is about the maximum window that can be used around the object trace when the nod is +/-6.5 arcseconds from the slit centre
         nspec, nspat = extfrm_use.shape
         # Set the window edges
         ledge, redge = edges
-        spec.TRACE_SPAT.flatten()-redge
         nwindow_left = int(min(np.min(spec.TRACE_SPAT.flatten() - ledge), nwindow))
         nwindow_right = int(min(np.min(redge-spec.TRACE_SPAT.flatten()), nwindow))
         print("Left window edge = {0:d}, Right window edge = {1:d}".format(nwindow_left, nwindow_right))
@@ -1025,53 +1142,108 @@ class ReduceBase:
             ii += 1
             print(f"Iteration {ii} :: Number of new bad pixels = {nnew}... total number of masked pixels = {nmask}")
         # plt.subplot(141);plt.imshow(gpm_img, aspect=0.5);plt.subplot(142);plt.imshow(extfrm_use, aspect=0.5, vmin=-1000, vmax=1000);plt.subplot(143);plt.imshow(extfrm_use_med, aspect=0.5, vmin=-1000, vmax=1000);plt.subplot(144);plt.imshow(medfilt, aspect=0.5, vmin=-1000, vmax=1000);plt.show()
-        allgpm = gpm_img.flatten()
-        prof = np.zeros(bins.size - 1)
-        # Mask based on object profile
-        ii, nmask = 0, -1
-        while (nmask != 0):
-            # Go through and mask pixels
-            nmask = 0
-            for bb in range(bins.size):
-                thisbin = (inds == bb + 1) & (allgpm)
-                ww = np.where(thisbin)
-                med = np.median(allflux[ww])
-                mad = 1.4826 * np.median(np.abs(med - allflux[ww]))
-                wbad = np.where(thisbin & (np.abs((allflux - med) / mad) > sigrej))
-                allgpm[wbad] = False
-                nmask += wbad[0].size
-            ii += 1
-            print(f"Iteration {ii} :: Number of new bad pixels = {nmask}")
-        # Calculate the object profile (used for the first basis vector)
         if False:
-            # test if the tilts worked
-            gpm = np.where((gpm_img.flatten()) & (allspat > -nwindow) & (allspat < nwindow))
-            cnts, _ = np.histogram(allspec[gpm], bins=np.arange(2048), weights=extfrm_use_med.flatten()[gpm])
-            norm, _ = np.histogram(allspec[gpm], bins=np.arange(2048))
-            cnts *= utils.inverse(norm)
-            plt.plot(cnts)
-            plt.show()
-        tmp = (allgpm) & ((allspec > 1800) & (allspec < 1950)) | ((allspec > 1400) & (allspec < 1550))
-        gpm = np.where(tmp)
-        # First estimate of object profile
-        cnts, _ = np.histogram(allspat[gpm], bins=bins, weights=extfrm_use_med.flatten()[gpm])
-        norm, _ = np.histogram(allspat[gpm], bins=bins)
-        cnts *= utils.inverse(norm)
-        # Calculate the step width (used for the second basis vector)
+            allgpm = gpm_img.flatten()
+            prof = np.zeros(bins.size - 1)
+            # Mask based on object profile
+            ii, nmask = 0, -1
+            while (nmask != 0):
+                # Go through and mask pixels
+                nmask = 0
+                for bb in range(bins.size):
+                    thisbin = (inds == bb + 1) & (allgpm)
+                    ww = np.where(thisbin)
+                    med = np.median(allflux[ww])
+                    mad = 1.4826 * np.median(np.abs(med - allflux[ww]))
+                    wbad = np.where(thisbin & (np.abs((allflux - med) / mad) > sigrej))
+                    allgpm[wbad] = False
+                    nmask += wbad[0].size
+                ii += 1
+                print(f"Iteration {ii} :: Number of new bad pixels = {nmask}")
+        # Calculate the object profile (used for the first basis vector)
+        # if True:
+        #     # test if the tilts worked
+        #     gpm = np.where((gpm_img.flatten()) & (allspat > -nwindow) & (allspat < nwindow))
+        #     cnts, _ = np.histogram(allspec[gpm], bins=np.arange(2048), weights=extfrm_use_med.flatten()[gpm])
+        #     norm, _ = np.histogram(allspec[gpm], bins=np.arange(2048))
+        #     cnts *= utils.inverse(norm)
+        #     plt.plot(cnts)
+        #     plt.show()
+        opimg = self.object_profile(extfrm_use, ivar_use, allspecimg, allspatimg, gpm_img, nwindow_left, nwindow_right)
         xloc = 0.5 * (bins[1:] + bins[:-1])
-        #     cnts /= (2*np.sum(cnts))  # Factor of 2 is because we only consider half the profile here.
-        nrmcnts = np.sum(cnts)
-        cnts /= nrmcnts
-        # Interpolate the object profile so that it can be used at each wavelength
-        #     xspl = np.append(-xloc[1:][::-1], xloc)
-        #     yspl = np.append(cnts[1:][::-1], cnts)
-        opspl = interpolate.CubicSpline(xloc, 1.0E6 * cnts)
-               # plt.plot(xloc, cnts)
-               # plt.show()
+        if False:
+            tmp = (allgpm) & ((allspec > 1800) & (allspec < 1950)) | ((allspec > 1400) & (allspec < 1550))
+            gpm = np.where(tmp)
+            # First estimate of object profile
+            cnts, _ = np.histogram(allspat[gpm], bins=bins, weights=extfrm_use_med.flatten()[gpm])
+            norm, _ = np.histogram(allspat[gpm], bins=bins)
+            cnts *= utils.inverse(norm)
+            # Calculate the step width (used for the second basis vector)
+            #     cnts /= (2*np.sum(cnts))  # Factor of 2 is because we only consider half the profile here.
+            nrmcnts = np.sum(cnts)
+            cnts /= nrmcnts
+            # Interpolate the object profile so that it can be used at each wavelength
+            #     xspl = np.append(-xloc[1:][::-1], xloc)
+            #     yspl = np.append(cnts[1:][::-1], cnts)
+            opspl = interpolate.CubicSpline(xloc, 1.0E6 * cnts)
+        # plt.scatter(allspat[tmp], extfrm_use.flatten()[tmp], c=allspec[tmp], s=1)
+        # plt.xlim(-20, 20)
+        # plt.ylim(0, 30000)
+        # plt.show()
+        #
+        # plt.scatter(allspec, extfrm_use.flatten(), c=allspat, s=1)
+        # plt.xlim(1650, 1750)
+        # plt.ylim(0, 30000)
+        # plt.show()
+
+        # tbins = interpolate.CubicSpline(50 * np.cumsum(cnts), xloc)(np.arange(50))
+        # op_bpm = np.logical_not(onslit).flatten()
+        # xop, yop = allspat.copy(), extfrm_use.flatten()
+        # while True:
+        #     this = np.where(np.logical_not(op_bpm) & (xop>-nwindow_left) & (xop<nwindow_right))
+        #     asrt = np.argsort(xop[this])
+        #     xmn, xmx = np.min(xop[this]), np.max(xop[this])
+        #     nval = 1+int((xmx-xmn)*10)
+        #     bs = 0.5*(xmx-xmn)/nval
+        #     tbins = np.linspace(xmn+bs, xmx-bs, nval)
+        #     spl = interpolate.splrep(xop[this][asrt], yop[this][asrt], task=-1, t=tbins)
+        #     splthis = interpolate.splev(xop, spl)
+        #     tst = np.abs(yop-splthis)
+        #     mad = 1.4826*np.median(tst)
+        #     numbad = np.where((tst > 5.0*mad) & np.logical_not(op_bpm))
+        #     if numbad[0].size == 0:
+        #         break
+        #     else:
+        #         print("Found {0:d} new bad pixels".format(numbad[0].size))
+        #         op_bpm[numbad] = True
+        # plt.plot(xloc, cnts/np.max(cnts), 'b-')
+        # plt.plot(tbins, interpolate.splev(tbins, spl)/np.max(interpolate.splev(tbins, spl)), 'r-')
+        # plt.show()
+        #
+        # opmodel = np.zeros(extfrm_use.shape, dtype=float)
+        # gpm_img_new = tmp.reshape(extfrm_use.shape)
+        # skymodel, objmodel, ivarmodel, extractmask = skysub.local_skysub_extract(
+        #     extfrm_use.astype(float), ivar_use, tilts, allspecimg,
+        #     np.zeros(extfrm_use.shape), gpm_img_new, ledge, redge,
+        #     spec, ingpm=gpm_img_new,
+        #     spat_pix=None,
+        #     model_full_slit=False,
+        #     sigrej=5.0,
+        #     model_noise=False,  # base_var=basevar,
+        #     bsp=0.1,
+        #     std=False,
+        #     adderr=0.0002,
+        #     force_gauss=False,
+        #     sn_gauss=4,
+        #     show_profile=self._plotit,
+        #     use_2dmodel_mask=False,
+        #     no_local_sky=False)
+        # opmodel[gpm_img_new] = objmodel
+
         # Now perform the fit
         slice = np.meshgrid(np.arange(1600, 1750), np.arange(extfrm_use.shape[1]), indexing='ij')
         trace_mask = np.abs(allspatimg) > 3.0
-        numiter = 3
+        numiter = 4
         testing, subtesting = False, False  # Need to (1) True, True, then set the best test value; (2) False, True, then set the best sub test value; (3) False, False, once both test and subtests have been done
         if testing:
             # Use this option to learn what the optimal number of pixels is
@@ -1086,11 +1258,36 @@ class ReduceBase:
             gpm_img_new = gpm_img.copy()
             #gpm_img_tmp = gpm_img.copy()
             for ii in range(numiter):
-                HIIresid, outfluxbox, outfluxbox_err = self.iterate_objfit(extfrm_use-bgfitted, ivar_use, gpm_img_new, spec, opspl, xloc, nbasis, numpixfit=tst[tt])
-                bgfitted_tmp, gpm_img_tmp = self.iterate_bgfit(HIIresid+bgfitted, gpm_img_new & trace_mask, allspecimg, allspatimg, nwindow_left, nwindow_right, idx)
+                if ii == 0: this_nbasis = nbasis
+                else: this_nbasis = 3
+                #HIIresid, outfluxbox, outfluxbox_err = self.iterate_objfit(extfrm_use-bgfitted, ivar_use, gpm_img_new, spec, opspl, xloc, nbasis, numpixfit=tst[tt])
+                HIIresid, outfluxbox, outfluxbox_err = self.iterate_objfit(extfrm_use - bgfitted, ivar_use, gpm_img_new, spec, opimg, nwindow_left, nwindow_right, this_nbasis, numpixfit=tst[tt])
+                # Redo trace to be constant emission velocity
+                allspecimg = self.trace_tilt(spec.TRACE_SPAT.flatten(), trcnum=min(nwindow_left, nwindow_right), plotit=False, objfrm=HIIresid+bgfitted)
+                allspec = allspecimg.flatten()
+                # Fit the background emission
+                bgfitted_tmp, gpm_img_new = self.iterate_bgfit(HIIresid+bgfitted, gpm_img_new, allspecimg, allspatimg, nwindow_left, nwindow_right, idx, trace_mask, plotit=False)#(ii==numiter-1))
                 bgfitted = bgfitted_tmp.copy()
-                # print("(box) S/N = ", np.mean(outfluxbox[1338:1448]) / np.std(outfluxbox[1338:1448]))
-                # print("(box) S/N ab = ", np.mean(outfluxbox[1706:1726]) / np.std(outfluxbox[1706:1726]))
+                # Redo object trace after removing the emission component
+                spec = findobj_skymask.objs_in_slit(
+                    extfrm_use - bgfitted, ivar_use, gpm_img_new, ledge, redge,
+                    ncoeff=self._polyord, boxcar_rad=3.0,
+                    show_fits=self._plotit, nperslit=1)
+                allspatimg = (spatimg - spec.TRACE_SPAT.T)
+                allspat = allspatimg.flatten()
+                # Redo the object profile
+                if ii>=2:
+                    opimg = self.object_profile(extfrm_use - bgfitted, ivar_use, allspecimg, allspatimg, gpm_img_new, nwindow_left, nwindow_right, full=True)
+                if False:
+                    tmp = np.where(gpm_img_new.flatten() & (np.abs(allspat)<20))
+                    plt.scatter(allspec[tmp], (HIIresid).flatten()[tmp], c=allspat[tmp], s=0.1)
+                    plt.xlim(1650, 1750)
+                    plt.ylim(0, 10000)
+                    plt.show()
+                    embed()
+                    assert(False)
+                print("(box) S/N = ", np.mean(outfluxbox[1400:1448]) / np.std(outfluxbox[1400:1448]))
+                print("(box) S/N ab = ", np.mean(outfluxbox[1706:1726]) / np.std(outfluxbox[1706:1726]))
                 # plt.plot(outfluxbox)
                 # xplot = np.arange(1338,1448)
                 # modl = np.polyval(np.polyfit(xplot,spec_boxcar_flx[1338:1448],1), xplot)
@@ -1107,7 +1304,8 @@ class ReduceBase:
             # An error such as:
             # ValueError: Invalid combination of row and col input shapes.
             # in pypeit.core.moment.moment1d (when doing boxcar extraction) can be fixed by changing len(_row) to _row.ndim
-            profile_img = opspl(allspatimg)
+            #profile_img = opspl(allspatimg)
+            profile_img = opimg.copy()
             if subtesting:
                 # Use this option to learn what the optimal number of pixels is
                 subtst = np.arange(1, 15, dtype=float)
@@ -1183,17 +1381,17 @@ class ReduceBase:
                     spec_boxcar_sky = spec.BOX_COUNTS_SKY.flatten() * utils.inverse(boxskywght)
                     spec_boxcar_wav = spec.BOX_WAVE.flatten()
 #                plt.plot(spec_boxcar)
-                xplot = np.arange(1338,1448)
-                modl = np.polyval(np.polyfit(xplot,spec_boxcar_flx[1338:1448],1), xplot)
-                SN_spectmp[br] = np.mean(spec_boxcar_flx[1338:1448]) / np.std(spec_boxcar_flx[1338:1448]-modl)
+                xplot = np.arange(1400,1448)
+                modl = np.polyval(np.polyfit(xplot,spec_boxcar_flx[1400:1448],1), xplot)
+                SN_spectmp[br] = np.mean(spec_boxcar_flx[1400:1448]) / np.std(spec_boxcar_flx[1400:1448]-modl)
                 xplot = np.arange(1706,1726)
                 modl = np.polyval(np.polyfit(xplot, spec_boxcar_flx[1706:1726],1), xplot)
                 SN_abstmp[br] = np.mean(spec_boxcar_flx[1706:1726]) / np.std(spec_boxcar_flx[1706:1726]-modl)
 #            plt.show()
             SN_spec[tt] = np.max(SN_spectmp)
             SN_abs[tt] = np.max(SN_abstmp)
-            # print("(box) S/N = ", np.mean(spec_boxcar_flx[1338:1448]) / np.std(spec_boxcar_flx[1338:1448]))
-            # print("(box) S/N ab = ", np.mean(spec_boxcar_flx[1706:1726]) / np.std(spec_boxcar_flx[1706:1726]))
+            print("(box) S/N = ", np.mean(spec_boxcar_flx[1400:1448]) / np.std(spec_boxcar_flx[1400:1448]))
+            print("(box) S/N ab = ", np.mean(spec_boxcar_flx[1706:1726]) / np.std(spec_boxcar_flx[1706:1726]))
         if testing or subtesting:
             if testing:
                 plt.subplot(211)
@@ -1221,6 +1419,33 @@ class ReduceBase:
         outPath = self._procpath
         outA = outPath + "spec1d_{0:02d}.dat".format(idx)
         np.savetxt(outA, np.column_stack((spec_boxcar_wav, spec_boxcar_flx, spec_boxcar_sig, spec_boxcar_sky)))
+        if False:
+            embed()
+            # Now do the extraction
+            skymodel, objmodel, ivarmodel, extractmask = skysub.local_skysub_extract(
+                extfrm_use.astype(float), ivar_use, tilts, allspecimg,
+                bgfitted, gpm_img_new, ledge, redge,
+                spec, ingpm=gpm_img_new,
+                spat_pix=None,
+                model_full_slit=False,
+                sigrej=5.0,
+                model_noise=False,  # base_var=basevar,
+                bsp=0.1,
+                std=False,
+                adderr=0.0002,
+                force_gauss=False,
+                sn_gauss=4,
+                show_profile=self._plotit,
+                use_2dmodel_mask=False,
+                no_local_sky=False)
+            plt.subplot(211)
+            plt.plot(spec['BOX_WAVE'][0, :], spec['BOX_COUNTS'][0, :] * utils.inverse(boxwght), 'k-', drawstyle='steps-mid')
+            plt.plot(spec['BOX_WAVE'][0, :], spec['BOX_COUNTS_SKY'][0, :], 'b-', drawstyle='steps-mid')
+            plt.subplot(212)
+            plt.plot(spec['OPT_WAVE'][0, :], spec['OPT_COUNTS'][0, :], 'r-', drawstyle='steps-mid')
+            plt.plot(spec['OPT_WAVE'][0, :], spec['OPT_COUNTS_SKY'][0, :], 'g-', drawstyle='steps-mid')
+            plt.show()
+
         return
 
     def step_trace(self):
