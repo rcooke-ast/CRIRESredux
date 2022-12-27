@@ -139,6 +139,7 @@ class ReduceBase:
         self._masterarc_name = self._calspath + "masterarc_" + self._chip_str
         self._diff_name = self._procpath + "diff_FR{0:02d}_" + self._chip_str
         self._sumd_name = self._procpath + "sumd_FR{0:02d}_" + self._chip_str
+        self._maxd_name = self._procpath + "maxd_FR{0:02d}_" + self._chip_str
         self._cut_name = self._procpath + "cuts_FR{0:02d}_" + self._chip_str
 
     def get_science_frames(self):
@@ -673,6 +674,7 @@ class ReduceBase:
             # Take the difference
             diff = (img_a - img_b) * ndit
             sumd = (img_a + img_b) * ndit
+            maxd = np.max(np.dstack((img_a, img_b)), axis=2) * ndit
             # Save the output
             outname = self._diff_name.format(mm)
             hdu = fits.PrimaryHDU(diff[self._slice])# / msflat)
@@ -681,6 +683,11 @@ class ReduceBase:
             # Summed image
             outname = self._sumd_name.format(mm)
             hdu = fits.PrimaryHDU(sumd[self._slice])# / msflat)
+            hdu.writeto(outname, overwrite=True)
+            print("File written: {0:s}".format(outname))
+            # Max image
+            outname = self._maxd_name.format(mm)
+            hdu = fits.PrimaryHDU(maxd[self._slice])# / msflat)
             hdu.writeto(outname, overwrite=True)
             print("File written: {0:s}".format(outname))
 
@@ -1563,7 +1570,7 @@ class ReduceBase:
                 frame = fits.open(difnstr)[0].data.T.astype(float)
                 frame *= self._gain
                 frame2 = -frame.copy()
-                framesum = fits.open(self._sumd_name.format(ff))[0].data.T
+                framesum = fits.open(self._maxd_name.format(ff))[0].data.T
                 framesum *= self._gain
                 # Calculate the readnoise
                 rnfrm = fits.open(difnstr)[0].data.astype(float) * self._gain
