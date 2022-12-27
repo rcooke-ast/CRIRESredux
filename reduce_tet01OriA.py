@@ -3,7 +3,7 @@ from reduce_base import ReduceBase
 
 def main():
     # Initialise the reduce class
-    step1 = True
+    step1 = False
     step2 = not step1
     thisred = Reduce(prefix="tet01OriA",
                      use_diff=False,
@@ -19,9 +19,9 @@ def main():
                      step_wavecal_prelim=step1,  # Calculate a preliminary wavelength calibration solution
                      step_prepALIS=step1,
                      # Once the data are reduced, prepare a series of files to be used to fit the wavelength solution with ALIS
-                     step_combspec=False, step_combspec_rebin=step2,
+                     step_combspec=False, step_combspec_rebin=False,#step2,
                      # First get the corrected data from ALIS, and then combine all exposures with this step.
-                     step_wavecal_sky=False, step_comb_sky=False,
+                     step_wavecal_sky=True, step_comb_sky=True,
                      # Wavelength calibrate all sky spectra and then combine
                      step_sample_NumExpCombine=False)  # Combine a different number of exposures to estimate how S/N depends on the number of exposures combined.
     thisred.makePaths(redux_path="/Users/rcooke/Work/Research/BBN/helium34/Absorption/2022_ESO_Survey/OrionNebula/CRIRES/")

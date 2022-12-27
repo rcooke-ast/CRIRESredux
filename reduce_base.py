@@ -42,7 +42,7 @@ def myfunct_pix(par, fjac=None, xval=None, flux=None, error=None, objspl=None):
 
 
 class ReduceBase:
-    def __init__(self, prefix="targetname", use_diff=False,
+    def __init__(self, prefix="targetname", data_folder="Raw/", use_diff=False,
                  step_listfiles=False,
                  step_pattern=False,  # Generate an image of the detector pattern
                  step_makedarkfit=False, step_makedarkframe=False,  # Make a dark image
@@ -61,6 +61,7 @@ class ReduceBase:
                  step_sample_NumExpCombine=False):
 
         self._prefix = prefix
+        self._data_folder = data_folder
         self._plotit = False
         self._specaxis = 0
         self._gain = 2.15  # This value comes from the header
@@ -114,10 +115,8 @@ class ReduceBase:
         self._dark_files = self.get_dark_frames()
         self._arc_files = self.get_arc_frames()
 
-    def makePaths(self, redux_path="",
-                  data_folder="Raw/"):
+    def makePaths(self, redux_path=""):
         self._redux_path = redux_path
-        self._data_folder = data_folder
         self._cals_folder = "redux_"+self._prefix+"/calibrations/"
         self._proc_folder = "redux_"+self._prefix+"/processed/"
         self._alt_folder = "redux_"+self._prefix+"/alternative/"
@@ -185,6 +184,7 @@ class ReduceBase:
             # usePath = self._altpath + "alt_"
             # if self._use_diff: usePath = self._procpath
             usePath = self._procpath
+            print(self._numframes * len(self._nods), self._numframes, len(self._nods))
             for ff in range(self._numframes * len(self._nods)):
                 if sky:
                     outname = usePath + "spec1d_{0:02d}_{1:s}_sky_wzcorr.dat".format(ff // 2, self._nods[ff % 2])
@@ -284,7 +284,7 @@ class ReduceBase:
         out_flux = self._maskval * np.ones((npix, nspec))
         out_flue = self._maskval * np.ones((npix, nspec))
         for sp in range(nspec):
-            new_specs.append(raw_specs[sp].rebin(out_wave * units.AA, do_sig=True))
+            new_specs.append(raw_specs[sp].rebin(out_wave * units.AA, do_sig=True, grow_bad_sig=True))
             gpm = new_specs[0].sig != 0.0
             out_flux[gpm, sp] = new_specs[sp].flux[gpm]
             out_flue[gpm, sp] = new_specs[sp].sig[gpm]
@@ -341,13 +341,19 @@ class ReduceBase:
                 else:
                     out_specname = usePath + self._prefix+"_HeI10833_scaleErr_wzcorr_comb_rebin.dat"
                 np.savetxt(out_specname, np.transpose((out_wave, spec, specerr_new)))
+                plt.plot(out_wave, spec, 'k-', drawstyle='steps-mid')
+                plt.show()
             print("File written: {0:s}".format(out_specname))
         return out_wave, spec, specerr_new, specerr, final_flux
 
     def scale_variance(self, out_wave, spec, specerr, getSNR=False):
-        wc = np.where((out_wave >= 10836.3) & (out_wave <= 10837.2))
+        wc = np.where((out_wave >= 10828.0) & (out_wave <= 10830.0))
+#        wc = np.where((out_wave >= 10836.4) & (out_wave <= 10837.2))
         mcf = np.polyfit(out_wave[wc], spec[wc], 2)
         modcont = np.polyval(mcf, out_wave[wc])
+        plt.plot(out_wave[wc], spec[wc], 'k-', drawstyle='steps')
+        plt.plot(out_wave[wc], modcont, 'r-')
+        plt.show()
         sig_meas = np.std(spec[wc] - modcont)
         sig_calc = np.mean(specerr[wc])
         scalefact = sig_meas / sig_calc
@@ -471,10 +477,10 @@ class ReduceBase:
         if os.path.exists(filelist):
             files = open(filelist).readlines()
         else:
-            files = glob.glob("Raw/CRIRE*.fits")
+            files = glob.glob(self._data_folder+"CRIRE*.fits")
             files.sort()
         for ff in range(len(files)):
-            fil = fits.open(self._datapath + files[ff].lstrip("Raw/").strip("\n"))
+            fil = fits.open(self._datapath + files[ff].lstrip(self._data_folder).strip("\n"))
             try:
                 print(files[ff].strip("\n"), fil[0].header['HIERARCH ESO DET NDIT'],
                       fil[0].header['HIERARCH ESO SEQ NODPOS'], fil[0].header['HIERARCH ESO SEQ NODTHROW'],
@@ -669,12 +675,12 @@ class ReduceBase:
             sumd = (img_a + img_b) * ndit
             # Save the output
             outname = self._diff_name.format(mm)
-            hdu = fits.PrimaryHDU(diff[self._slice] / msflat)
+            hdu = fits.PrimaryHDU(diff[self._slice])# / msflat)
             hdu.writeto(outname, overwrite=True)
             print("File written: {0:s}".format(outname))
             # Summed image
             outname = self._sumd_name.format(mm)
-            hdu = fits.PrimaryHDU(sumd[self._slice] / msflat)
+            hdu = fits.PrimaryHDU(sumd[self._slice])# / msflat)
             hdu.writeto(outname, overwrite=True)
             print("File written: {0:s}".format(outname))
 
@@ -798,8 +804,6 @@ class ReduceBase:
         return gpm_img
 
     def object_profile(self, allflux, allivar, allspecimg, allspatimg, gpm_img, maxspatl, maxspatr, full=False):
-        # embed()
-        # assert False
         evpix = (allspecimg > 1400.0) & (allspecimg < 1950) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
         # Perform the b-spline fit
         """
@@ -839,30 +843,37 @@ class ReduceBase:
         if iopt >= 0: s >= 0
         w(i) > 0, i = 1, ..., m
         """
-        tsty = np.array([2, 3])
+        tsty = np.array([2, 2])
         ev_spec, ev_spat = allspecimg[evpix], allspatimg[evpix]
         idxs = np.where(evpix)
         gpm_img_new = gpm_img.copy()
         for tt in range(tsty.size):
+            # This seems to work OK for tet02OriA_2021
             if full:
-                fitpix = (gpm_img_new) & (((allspecimg > 1700) & (allspecimg < 1950)) | ((allspecimg > 1400) & (allspecimg < 1610))) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
+                print("Using full object profile")
+                fitpix = (gpm_img_new) & (((allspecimg > 1690) & (allspecimg < 1950)) | ((allspecimg > 1400) & (allspecimg < 1620))) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
             else:
-                fitpix = (gpm_img_new) & (((allspecimg > 1750) & (allspecimg < 1950)) | ((allspecimg > 1400) & (allspecimg < 1600))) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
+                print("Using part object profile")
+                fitpix = (gpm_img_new) & (((allspecimg > 1720) & (allspecimg < 1940)) | ((allspecimg > 1410) & (allspecimg < 1600))) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
+#             if full:
+#                 fitpix = (gpm_img_new) & (allspecimg > 1400) & (allspecimg < 1950) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
+# #                fitpix = (gpm_img_new) & (((allspecimg > 1700) & (allspecimg < 1950)) | ((allspecimg > 1400) & (allspecimg < 1610))) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
+#             else:
+#                 fitpix = (gpm_img_new) & (((allspecimg > 1690) & (allspecimg < 1940)) | ((allspecimg > 1410) & (allspecimg < 1610))) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
             # Make ty
             ty = np.linspace(1400, 1950, tsty[tt])
             ty = np.append(np.ones(3) * ty[0], np.append(ty, ty[-1] * np.ones(3)))
             # Make tx
             nxest = int(3+np.sqrt(np.sum(fitpix)/2)) - 6
-            # mdreg = np.arange(-2.0, 2.1, 0.5)
-            # # wtmp = (mdreg > 1695) & (mdreg < 1705)
-            # # mdreg = np.sort(np.append(mdreg, 0.5*(mdreg[wtmp][1:]+mdreg[wtmp][:-1])))
-            # lreg = np.arange(np.min(allspatimg[fitpix]), -3.0, 2.0)
-            # rreg = np.linspace(3.0, np.max(allspatimg[fitpix]), lreg.size)
-            # #np.linspace(1730.0, 1949.99883592, (nxest - mdreg.size) // 2)
-            # tx = np.append(lreg, mdreg)
-            # tx = np.append(tx, rreg)
+            if False:
+                mdreg = np.arange(-4.0, 4.1, 0.15)
+                lreg = np.arange(np.min(allspatimg[fitpix]), -5.0, 1.0)
+                rreg = np.linspace(5.0, np.max(allspatimg[fitpix]), lreg.size)
+                tx = np.append(lreg, mdreg)
+                tx = np.append(tx, rreg)
+            else:
+                tx = np.linspace(np.min(allspatimg[fitpix]), np.max(allspatimg[fitpix]), nxest)
             # Pad the ticks with repeated starting points
-            tx = np.linspace(np.min(allspatimg[fitpix]), np.max(allspatimg[fitpix]), nxest)
             tx = np.append(np.ones(3) * tx[0], np.append(tx, tx[-1] * np.ones(3)))
             try:
                 tck = interpolate.bisplrep(allspatimg[fitpix], allspecimg[fitpix], allflux[fitpix], w=allivar[fitpix], task=-1, tx=tx, ty=ty)
@@ -874,9 +885,21 @@ class ReduceBase:
                 outImage[idxs[0][ii], idxs[1][ii]] = interpolate.bisplev(ev_spat[ii], ev_spec[ii], tck)
             # Reject deviant pixels
             tst = (allflux - outImage) * np.sqrt(allivar)
-            gpm_img_new[gpm_img_new & (np.abs(tst > 20))] = False
+            bpix = np.where(gpm_img_new & (np.abs(tst > 10)))
+            gpm_img_new[bpix] = False
+            print("New bad pixels in object profile :: ", bpix[0].size)
         # Normalise
-        outImage *= utils.inverse(np.sum(outImage, axis=1)[:, None])
+        norm = utils.inverse(np.sum(outImage, axis=1)[:, None])
+        outImage *= np.median(norm[norm != 0.0])
+        idxf = np.where(fitpix)
+        idxt = fitpix & (np.abs((allflux - (outImage * utils.inverse(norm))) * np.sqrt(allivar)) > 2.5)
+        plt.subplot(211)
+        plt.scatter(allspatimg[idxf], (allflux[idxf] - (outImage * utils.inverse(norm))[idxf]) * np.sqrt(allivar[idxf]), c=allspecimg[idxf], s=0.1)
+        plt.ylim(-15, 15)
+        plt.subplot(212)
+        plt.scatter(allspatimg[idxs], (allflux[idxs] - (outImage * utils.inverse(norm))[idxs]) * np.sqrt(allivar[idxs]), c=allspecimg[idxs], s=0.1)
+        plt.ylim(-15, 15)
+        plt.show()
         if False:
             plt.subplot(211)
             plt.scatter(allspatimg[idxs], outImage[idxs], c=allspecimg[idxs], s=0.1)
@@ -884,10 +907,54 @@ class ReduceBase:
             plt.scatter(allspatimg[idxs], outImage[idxs], c=allspecimg[idxs], s=0.1)
             plt.scatter(allspatimg[idxs], allflux[idxs], c=allspecimg[idxs], s=0.1)
             plt.show()
-            plt.scatter(allspatimg[idxs], (allflux[idxs] - outImage[idxs])*np.sqrt(allivar[idxs]), c=allspecimg[idxs], s=0.1)
+            plt.scatter(allspatimg[idxs], (allflux[idxs] - (outImage*utils.inverse(norm))[idxs])*np.sqrt(allivar[idxs]), c=allspecimg[idxs], s=0.1)
+            plt.ylim(-5,5)
             plt.show()
+            plt.hist((allflux[idxs] - (outImage*utils.inverse(norm))[idxs])*np.sqrt(allivar[idxs]), bin=np.linspace(-5,5,100))
             embed()
         return outImage
+
+    def mean_bg(self, inImage, inMask, thisboxpix, allspecimg, allspatimg, nwindow_left, nwindow_right, idx):
+        out_wave, raw_specs = self.comb_prep(use_corrected=False)
+        raw_wav, raw_flx, raw_err, bpm = self.comb_reject(out_wave, raw_specs, use_corrected=False)
+        thiswave = raw_wav[idx, :]
+        tmpnameAz = self._procpath + self._prefix + "_ALIS_spec{0:02d}_wzcorr.dat".format(idx)
+        out_waveAz, inwaveAz = np.loadtxt(tmpnameAz, unpack=True, usecols=(0, 1))
+        wA = np.where(np.in1d(thiswave, inwaveAz))
+        coeff = np.polyfit(thisboxpix[wA], out_waveAz, 1)
+        waveimg = np.polyval(coeff, allspecimg)
+        ref_exptime, _ = self.get_exptime(idx // 2)
+        # Make a new background image
+        bgImage = np.zeros((allspecimg.shape[0], allspecimg.shape[1], self._numspec))
+        print("Making background image")
+        for sp in range(self._numspec):
+            this_exptime, _ = self.get_exptime(sp // 2)
+            # convert pixel to wavelength for this spectrum
+            thiswave = raw_wav[sp, :]
+            tmpnameAz = self._procpath + self._prefix + "_ALIS_spec{0:02d}_wzcorr.dat".format(sp)
+            out_waveAz, inwaveAz = np.loadtxt(tmpnameAz, unpack=True, usecols=(0, 1))
+            wA = np.where(np.in1d(thiswave, inwaveAz))
+            coeff = np.polyfit(out_waveAz, thisboxpix[wA], 1)
+            this_allspecimg = np.polyval(coeff, waveimg)
+            # Load the bspline and the parameters needed for the fit
+            with open(self._procpath + 'bgfitted_{0:02d}.knots'.format(sp), 'rb') as knots_file:
+                knots = pickle.load(knots_file)
+            evpix = (this_allspecimg > 1400.0) & (this_allspecimg < 1950) & (allspatimg > -nwindow_left) & (
+                        allspatimg < nwindow_right)
+            ev_spec, ev_spat = this_allspecimg[evpix], allspatimg[evpix]
+            idxs = np.where(evpix)
+            for ii in range(ev_spec.size):
+                bgImage[idxs[0][ii], idxs[1][ii], sp] = (ref_exptime / this_exptime) * interpolate.bisplev(ev_spec[ii], ev_spat[ii], knots)
+        outImage = np.mean(bgImage, axis=2)
+        stdImage = np.std(bgImage, axis=2)
+        # Do some masking
+        outgpm = inMask & (np.abs(inImage - outImage)*utils.inverse(stdImage) < 10.0)
+        # plt.subplot(121)
+        # plt.imshow(inImage - outImage, vmin=-100, vmax=100)
+        # plt.subplot(122)
+        # plt.imshow(inImage - tmp, vmin=-100, vmax=100)
+        # plt.show()
+        return outImage, outgpm
 
     def iterate_bgfit(self, HIIresid, gpm_img, allspecimg, allspatimg, maxspatl, maxspatr, idx, trace_gpm, plotit=False):
         evpix = (allspecimg > 1400.0) & (allspecimg < 1950) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
@@ -1091,7 +1158,7 @@ class ReduceBase:
                 embed()
                 assert (False)
 
-    def basis_fit(self, extfrm_use, ivar_use, tilts, waveimg, spatimg, spec, idx, edges=None):
+    def basis_fit(self, extfrm_use, ivar_use, tilts, waveimg, spatimg, spec, idx, extfrm_use_nrm, ivar_use_nrm, edges=None, fullprof=False):
         # print("BIG ERROR!!! DELETE THIS RETURN STATEMENT")
         # print("BIG ERROR!!! DELETE THIS RETURN STATEMENT")
         # print("BIG ERROR!!! DELETE THIS RETURN STATEMENT")
@@ -1169,7 +1236,7 @@ class ReduceBase:
         #     cnts *= utils.inverse(norm)
         #     plt.plot(cnts)
         #     plt.show()
-        opimg = self.object_profile(extfrm_use, ivar_use, allspecimg, allspatimg, gpm_img, nwindow_left, nwindow_right)
+        opimg = self.object_profile(extfrm_use_nrm, ivar_use_nrm, allspecimg, allspatimg, gpm_img, nwindow_left, nwindow_right, full=fullprof)
         xloc = 0.5 * (bins[1:] + bins[:-1])
         if False:
             tmp = (allgpm) & ((allspec > 1800) & (allspec < 1950)) | ((allspec > 1400) & (allspec < 1550))
@@ -1243,14 +1310,16 @@ class ReduceBase:
         # Now perform the fit
         slice = np.meshgrid(np.arange(1600, 1750), np.arange(extfrm_use.shape[1]), indexing='ij')
         trace_mask = np.abs(allspatimg) > 3.0
-        numiter = 4
+        numiter = 5 if not self._use_diff else 1
+        mean_bg = False
         testing, subtesting = False, False  # Need to (1) True, True, then set the best test value; (2) False, True, then set the best sub test value; (3) False, False, once both test and subtests have been done
         if testing:
             # Use this option to learn what the optimal number of pixels is
             tst = np.arange(1, 15, dtype=float)
         else:
             # Insert the optimal value into the array below
-            tst = np.array([15.0], dtype=float)
+            tst = np.array([1.0], dtype=float)
+        objfrm = None if self._use_diff else HIIresid + bgfitted
         SN_spec, SN_abs = np.zeros(tst.size), np.zeros(tst.size)
         for tt in range(tst.size):
             #trace_mask = np.abs(allspatimg) > tst[tt]
@@ -1259,35 +1328,48 @@ class ReduceBase:
             #gpm_img_tmp = gpm_img.copy()
             for ii in range(numiter):
                 if ii == 0: this_nbasis = nbasis
-                else: this_nbasis = 3
-                #HIIresid, outfluxbox, outfluxbox_err = self.iterate_objfit(extfrm_use-bgfitted, ivar_use, gpm_img_new, spec, opspl, xloc, nbasis, numpixfit=tst[tt])
-                HIIresid, outfluxbox, outfluxbox_err = self.iterate_objfit(extfrm_use - bgfitted, ivar_use, gpm_img_new, spec, opimg, nwindow_left, nwindow_right, this_nbasis, numpixfit=tst[tt])
-                # Redo trace to be constant emission velocity
-                allspecimg = self.trace_tilt(spec.TRACE_SPAT.flatten(), trcnum=min(nwindow_left, nwindow_right), plotit=False, objfrm=HIIresid+bgfitted)
-                allspec = allspecimg.flatten()
-                # Fit the background emission
-                bgfitted_tmp, gpm_img_new = self.iterate_bgfit(HIIresid+bgfitted, gpm_img_new, allspecimg, allspatimg, nwindow_left, nwindow_right, idx, trace_mask, plotit=False)#(ii==numiter-1))
-                bgfitted = bgfitted_tmp.copy()
-                # Redo object trace after removing the emission component
-                spec = findobj_skymask.objs_in_slit(
-                    extfrm_use - bgfitted, ivar_use, gpm_img_new, ledge, redge,
-                    ncoeff=self._polyord, boxcar_rad=3.0,
-                    show_fits=self._plotit, nperslit=1)
-                allspatimg = (spatimg - spec.TRACE_SPAT.T)
-                allspat = allspatimg.flatten()
-                # Redo the object profile
-                if ii>=2:
-                    opimg = self.object_profile(extfrm_use - bgfitted, ivar_use, allspecimg, allspatimg, gpm_img_new, nwindow_left, nwindow_right, full=True)
-                if False:
-                    tmp = np.where(gpm_img_new.flatten() & (np.abs(allspat)<20))
-                    plt.scatter(allspec[tmp], (HIIresid).flatten()[tmp], c=allspat[tmp], s=0.1)
-                    plt.xlim(1650, 1750)
-                    plt.ylim(0, 10000)
-                    plt.show()
-                    embed()
-                    assert(False)
-                print("(box) S/N = ", np.mean(outfluxbox[1400:1448]) / np.std(outfluxbox[1400:1448]))
-                print("(box) S/N ab = ", np.mean(outfluxbox[1706:1726]) / np.std(outfluxbox[1706:1726]))
+                elif ii <=2: this_nbasis = 3
+                else: this_nbasis = 2
+                if self._use_diff:
+                    bgfitted = np.zeros(extfrm_use.shape)
+                else:
+                    # HIIresid, outfluxbox, outfluxbox_err = self.iterate_objfit(extfrm_use-bgfitted, ivar_use, gpm_img_new, spec, opspl, xloc, nbasis, numpixfit=tst[tt])
+                    HIIresid, outfluxbox, outfluxbox_err = self.iterate_objfit(extfrm_use - bgfitted, ivar_use,
+                                                                               gpm_img_new, spec, opimg, nwindow_left,
+                                                                               nwindow_right, this_nbasis,
+                                                                               numpixfit=tst[tt])
+                    # Redo trace to be constant emission velocity
+                    allspecimg = self.trace_tilt(spec.TRACE_SPAT.flatten(), trcnum=min(nwindow_left, nwindow_right), plotit=False, objfrm=objfrm)
+                    allspec = allspecimg.flatten()
+                    # Fit the background emission
+                    if mean_bg:
+                        spec.BOX_RADIUS = 5.0
+                        extract_boxcar(extfrm_use, ivar_use, gpm_img_new, allspecimg, bgfitted, spec)
+                        thisboxpix = spec.BOX_WAVE.flatten()
+                        bgfitted, gpm_img_new = self.mean_bg(HIIresid + bgfitted, gpm_img_new, thisboxpix, allspecimg, allspatimg, nwindow_left, nwindow_right, idx)
+                    else:
+                        bgfitted, gpm_img_new = self.iterate_bgfit(HIIresid+bgfitted, gpm_img_new, allspecimg, allspatimg, nwindow_left, nwindow_right, idx, trace_mask, plotit=False)#(ii==numiter-1))
+                    # Redo object trace after removing the emission component
+                    spec = findobj_skymask.objs_in_slit(
+                        extfrm_use - bgfitted, ivar_use, gpm_img_new, ledge, redge,
+                        ncoeff=self._polyord, boxcar_rad=3.0,
+                        show_fits=self._plotit, nperslit=1)
+                    allspatimg = (spatimg - spec.TRACE_SPAT.T)
+                    allspat = allspatimg.flatten()
+                    # Redo the object profile
+                    if ii>=2:
+                        print("ERROR  :::  NEED TO THINK ABOUT THIS!!! - The normed images are not being passed in...")
+                        opimg = self.object_profile(extfrm_use - bgfitted, ivar_use, allspecimg, allspatimg, gpm_img_new, nwindow_left, nwindow_right, full=True)
+                    if False:
+                        tmp = np.where(gpm_img_new.flatten() & (np.abs(allspat)<20))
+                        plt.scatter(allspec[tmp], (HIIresid).flatten()[tmp], c=allspat[tmp], s=0.1)
+                        plt.xlim(1650, 1750)
+                        plt.ylim(0, 10000)
+                        plt.show()
+                        embed()
+                        assert(False)
+                    print("(box) S/N = ", np.mean(outfluxbox[1400:1448]) / np.std(outfluxbox[1400:1448]))
+                    print("(box) S/N ab = ", np.mean(outfluxbox[1706:1726]) / np.std(outfluxbox[1706:1726]))
                 # plt.plot(outfluxbox)
                 # xplot = np.arange(1338,1448)
                 # modl = np.polyval(np.polyfit(xplot,spec_boxcar_flx[1338:1448],1), xplot)
@@ -1311,7 +1393,7 @@ class ReduceBase:
                 subtst = np.arange(1, 15, dtype=float)
             else:
                 # Insert the optimal value into the array below
-                subtst = np.array([4.0])
+                subtst = np.array([5.0])
             SN_spectmp, SN_abstmp = np.zeros(subtst.size), np.zeros(subtst.size)
             for br in range(subtst.size):
                 spec.BOX_RADIUS = subtst[br]
@@ -1322,6 +1404,7 @@ class ReduceBase:
                 # embed()
                 # assert False
                 extract_boxcar(extfrm_use, ivar_use, gpm_img_new, allspecimg, bgfitted, spec)
+                extract_optimal(extfrm_use, ivar_use, gpm_img_new, allspecimg, bgfitted, gpm_img_new, profile_img, spec, min_frac_use=0.05, base_var=None, count_scale=None, noise_floor=None)
                 if False:
                     thisboxpix = spec.BOX_WAVE.flatten()
                     all_boxcar_waves = np.zeros((boxwght.size, self._numspec))
@@ -1372,26 +1455,42 @@ class ReduceBase:
                         plt.plot(avg_wave, avg_flux, 'k-', drawstyle='steps-mid')
                         plt.show()
                     spec_boxcar_wav = all_boxcar_waves[:, idx]
-                    spec_boxcar_flx = np.mean(all_boxcar_specs, axis=1)
+                    spec_boxcar_flx = np.median(all_boxcar_specs, axis=1)
                     spec_boxcar_sig = all_boxcar_sigma[:, idx]
-                    spec_boxcar_sky = np.mean(all_boxcar_bgrnd, axis=1)
+                    spec_boxcar_sky = np.median(all_boxcar_bgrnd, axis=1)
                 else:
+                    spec_boxcar_sky = spec.BOX_COUNTS_SKY.flatten() * utils.inverse(boxskywght)
                     spec_boxcar_flx = spec.BOX_COUNTS.flatten() * utils.inverse(boxwght)
                     spec_boxcar_sig = spec.BOX_COUNTS_SIG.flatten() * utils.inverse(boxwght)
-                    spec_boxcar_sky = spec.BOX_COUNTS_SKY.flatten() * utils.inverse(boxskywght)
                     spec_boxcar_wav = spec.BOX_WAVE.flatten()
+                    spec_optimal_sky = spec.OPT_COUNTS_SKY.flatten()
+                    spec_optimal_flx = spec.OPT_COUNTS.flatten()
+                    spec_optimal_sig = spec.OPT_COUNTS_SIG.flatten()
+                    spec_optimal_wav = spec.OPT_WAVE.flatten()
+                # plt.plot(spec_boxcar_wav, spec_boxcar_flx, 'r-', drawstyle='steps-mid')
+                # plt.plot(spec_optimal_wav, spec_optimal_flx, 'b-', drawstyle='steps-mid')
+                # plt.show()
+                ww = (np.arange(1580, 1605),)
+                modbox = np.polyval(np.polyfit(spec_boxcar_wav[ww], spec_boxcar_flx[ww], 2), spec_boxcar_wav[ww])
+                modopt = np.polyval(np.polyfit(spec_optimal_wav[ww], spec_optimal_flx[ww], 2), spec_optimal_wav[ww])
+                print(1.0/np.std(spec_boxcar_flx[ww] / modbox))
+                print(1.0 / np.std(spec_optimal_flx[ww] / modopt))
 #                plt.plot(spec_boxcar)
-                xplot = np.arange(1400,1448)
-                modl = np.polyval(np.polyfit(xplot,spec_boxcar_flx[1400:1448],1), xplot)
-                SN_spectmp[br] = np.mean(spec_boxcar_flx[1400:1448]) / np.std(spec_boxcar_flx[1400:1448]-modl)
+                xplot = np.arange(1580,1605)
+                modl = np.polyval(np.polyfit(xplot,spec_boxcar_flx[1580:1605], 2), xplot)
+                SN_spectmp[br] = 1.0/np.std(spec_boxcar_flx[1580:1605]/modl)
                 xplot = np.arange(1706,1726)
-                modl = np.polyval(np.polyfit(xplot, spec_boxcar_flx[1706:1726],1), xplot)
-                SN_abstmp[br] = np.mean(spec_boxcar_flx[1706:1726]) / np.std(spec_boxcar_flx[1706:1726]-modl)
+                modl = np.polyval(np.polyfit(xplot, spec_boxcar_flx[1706:1726], 2), xplot)
+                SN_abstmp[br] = 1.0/np.std(spec_boxcar_flx[1706:1726]/modl)
 #            plt.show()
             SN_spec[tt] = np.max(SN_spectmp)
             SN_abs[tt] = np.max(SN_abstmp)
-            print("(box) S/N = ", np.mean(spec_boxcar_flx[1400:1448]) / np.std(spec_boxcar_flx[1400:1448]))
-            print("(box) S/N ab = ", np.mean(spec_boxcar_flx[1706:1726]) / np.std(spec_boxcar_flx[1706:1726]))
+            wlft = (np.arange(1580, 1605),)
+            wrgt = (np.arange(1706, 1726),)
+            modlft = np.polyval(np.polyfit(spec_boxcar_wav[wlft], spec_boxcar_flx[wlft], 2), spec_boxcar_wav[wlft])
+            modrgt = np.polyval(np.polyfit(spec_boxcar_wav[wrgt], spec_boxcar_flx[wrgt], 2), spec_boxcar_wav[wrgt])
+            print("(box) S/N = ", 1.0 / np.std(spec_boxcar_flx[wlft] / modlft))
+            print("(box) S/N ab = ", 1.0 / np.std(spec_boxcar_flx[wrgt] / modrgt))
         if testing or subtesting:
             if testing:
                 plt.subplot(211)
@@ -1418,7 +1517,8 @@ class ReduceBase:
         # if self._use_diff: outPath = self._procpath
         outPath = self._procpath
         outA = outPath + "spec1d_{0:02d}.dat".format(idx)
-        np.savetxt(outA, np.column_stack((spec_boxcar_wav, spec_boxcar_flx, spec_boxcar_sig, spec_boxcar_sky)))
+        # np.savetxt(outA, np.column_stack((spec_boxcar_wav, spec_boxcar_flx, spec_boxcar_sig, spec_boxcar_sky)))
+        np.savetxt(outA, np.column_stack((spec_optimal_wav, spec_optimal_flx, spec_optimal_sig, spec_optimal_sky)))
         if False:
             embed()
             # Now do the extraction
@@ -1446,7 +1546,7 @@ class ReduceBase:
             plt.plot(spec['OPT_WAVE'][0, :], spec['OPT_COUNTS_SKY'][0, :], 'g-', drawstyle='steps-mid')
             plt.show()
 
-        return
+        return spec_optimal_flx
 
     def step_trace(self):
         # Obtain a mask of the bad pixels
@@ -1460,22 +1560,24 @@ class ReduceBase:
             if self._use_diff:
                 difnstr = self._diff_name.format(ff)
                 print("extracting", difnstr)
-                frame = fits.open(difnstr)[0].data.T
+                frame = fits.open(difnstr)[0].data.T.astype(float)
                 frame *= self._gain
+                frame2 = -frame.copy()
                 framesum = fits.open(self._sumd_name.format(ff))[0].data.T
                 framesum *= self._gain
                 # Calculate the readnoise
-                rnfrm = fits.open(difnstr)[0].data * self._gain
+                rnfrm = fits.open(difnstr)[0].data.astype(float) * self._gain
                 statpix = np.append(rnfrm[:4, :].flatten(), rnfrm[-4:, :].flatten())
                 ronoise = 1.4826 * np.median(np.abs(statpix - np.median(statpix)))
+                ronoise2 = ronoise
                 print("RON  mean, std = ", np.mean(statpix), np.std(statpix))
                 print("RON  median, 1.4826*MAD = ", np.median(statpix), ronoise)
             else:
                 frm1 = self._cut_name.format(2 * ff)
                 frm2 = self._cut_name.format(2 * ff + 1)
                 print("Reducing... " + frm1)
-                frame = fits.open(frm1)[0].data.T
-                frame2 = fits.open(frm2)[0].data.T
+                frame = fits.open(frm1)[0].data.T.astype(float)
+                frame2 = fits.open(frm2)[0].data.T.astype(float)
                 frame *= self._gain
                 frame2 *= self._gain
                 framesum = frame.copy()
@@ -1499,24 +1601,26 @@ class ReduceBase:
             msflat = fits.open(self._masterflat_name)[0].data.T
             msdark = fits.open(self.get_darkname(self._masterdark_name, etim))[0].data.T
             basevar = procimg.base_variance(rn2img, darkcurr=darkcurr, exptime=exptime)
-            frame_for_ivar = ((frame / self._gain) + msdark) * self._gain
+            if self._use_diff: frame_for_ivar = framesum
+            else: frame_for_ivar = ((frame / self._gain) + msdark) * self._gain
             rawvarframe = procimg.variance_model(basevar, frame_for_ivar)
+            # Now work on frame2
+            rn2img2 = procimg.rn2_frame(datasec_img, ronoise2)
+            basevar2 = procimg.base_variance(rn2img2, darkcurr=darkcurr, exptime=exptime)
+            if self._use_diff: frame2_for_ivar = framesum
+            else: frame2_for_ivar = ((frame2 / self._gain) + msdark) * self._gain
+            rawvarframe2 = procimg.variance_model(basevar2, frame2_for_ivar)
             # Ivar
             ivar = utils.inverse(rawvarframe)
+            ivar2 = utils.inverse(rawvarframe2)
+            # Flatfield the data (note, this needs to be done after calculating the RO noise)
+            frame /= msflat
+            frame2 /= msflat
+            # Set up some arrays
             waveimg = np.arange(frame.shape[0])[:, np.newaxis].repeat(frame.shape[1], axis=1)
             spatimg = np.arange(frame.shape[1])[:, np.newaxis].repeat(frame.shape[0], axis=1).T
             tilts = waveimg / (frame.shape[0] - 1)
             global_sky = np.zeros(frame.shape)
-            if not self._use_diff:
-                rn2img2 = procimg.rn2_frame(datasec_img, ronoise2)
-                basevar2 = procimg.base_variance(rn2img2, darkcurr=darkcurr, exptime=exptime)
-                frame2_for_ivar = ((frame2 / self._gain) + msdark) * self._gain
-                rawvarframe2 = procimg.variance_model(basevar2, frame2_for_ivar)
-                # Ivar
-                ivar2 = utils.inverse(rawvarframe2)
-            # Flatfield the data (note, this needs to be done after calculating the RO noise)
-            frame /= msflat
-            frame2 /= msflat
             # Set the masks
             thismask = np.ones(frame.shape, dtype=np.bool) & np.logical_not(bpm)
             ingpm = thismask.copy()
@@ -1545,16 +1649,10 @@ class ReduceBase:
                 frame, ivar, thismask, ledge, redge,
                 ncoeff=self._polyord, boxcar_rad=boxcar_rad,
                 show_fits=self._plotit, nperslit=1)
-            if self._use_diff:
-                trc_neg = findobj_skymask.objs_in_slit(
-                    -frame, ivar, thismask, ledge, redge,
-                    ncoeff=self._polyord, boxcar_rad=boxcar_rad,
-                    show_fits=self._plotit, nperslit=1)
-            else:
-                trc_neg = findobj_skymask.objs_in_slit(
-                    frame2, ivar, thismask, ledge, redge,
-                    ncoeff=self._polyord, boxcar_rad=boxcar_rad,
-                    show_fits=self._plotit, nperslit=1)
+            trc_neg = findobj_skymask.objs_in_slit(
+                frame2, ivar2, thismask, ledge, redge,
+                ncoeff=self._polyord, boxcar_rad=boxcar_rad,
+                show_fits=self._plotit, nperslit=1)
             if self._plotit:
                 spec = np.arange(frame.shape[self._specaxis])
                 plt.imshow(frame.T, vmin=-200, vmax=200, origin='lower')
@@ -1578,27 +1676,46 @@ class ReduceBase:
                 isstd = False  # True
                 if self._ext_sky: isstd = False
                 for tt in range(2):
+                    # if ff == 5 and tt == 1: pass
+                    # else: continue
                     if self._ext_sky:
                         ee = 1 - tt
                     else:
                         ee = tt
-                    if self._use_diff:
-                        scl = 1
-                        if tt == 1: scl = -1
+                    # Loop over the correct frame and corresponding ivar image
+                    if tt == 0:
                         ivar_use = ivar
-                        extfrm_use = scl * frame
+                        extfrm_use = frame
                     else:
-                        if tt == 0:
-                            ivar_use = ivar
-                            extfrm_use = frame
-                        else:
-                            ivar_use = ivar2
-                            extfrm_use = frame2
+                        ivar_use = ivar2
+                        extfrm_use = frame2
                     # Are we doing basis fitting
                     if self._step_basis:
-                        self.basis_fit(extfrm_use, ivar_use, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt, [ledge, redge])
+                        extfrm_use_nrm, ivar_use_nrm = extfrm_use.copy(), ivar_use.copy()
+                        for it in range(2):
+                            objspec = self.basis_fit(extfrm_use, ivar_use, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt, extfrm_use_nrm, ivar_use_nrm, edges=[ledge, redge], fullprof=it!=0)
+                            extfrm_use_nrm, ivar_use_nrm = extfrm_use.copy(), ivar_use.copy()
+                            extfrm_use_nrm *= utils.inverse(objspec[:, None])
+                            ivar_use_nrm *= objspec[:, None]**2
                         continue
                     else:
+                        # Identify salt and pepper pixels with a median filter
+                        trcs[ee].BOX_RADIUS = 5.0
+                        ii, nmask, nnew = 0, 0, -1
+                        extfrm_use_med = extfrm_use.copy()
+                        ingpm = thismask.copy()
+                        while (nnew != 0):
+                            medfilt = medfilt2d(extfrm_use_med, kernel_size=(7, 1))
+                            madfilt = 1.4826 * medfilt2d(np.abs(extfrm_use_med - medfilt), kernel_size=(7, 1))
+                            wbad = np.where((ingpm) & (np.abs((extfrm_use_med - medfilt) * utils.inverse(madfilt)) > 10))
+                            extfrm_use_med = medfilt
+                            ingpm[wbad] = False
+                            nnew = wbad[0].size
+                            nmask += nnew
+                            ii += 1
+                            print(f"Iteration {ii} :: Number of new bad pixels = {nnew}... total number of masked pixels = {nmask}")
+                        # embed()
+                        # assert(False)
                         # Now do the extraction
                         skymodel[thismask], objmodel[thismask], ivarmodel[thismask], extractmask[
                             thismask] = skysub.local_skysub_extract(
@@ -1609,14 +1726,22 @@ class ReduceBase:
                             model_full_slit=False,
                             sigrej=5.0,
                             model_noise=False,  # base_var=basevar,
-                            bsp=0.1,
+                            bsp=0.5,
                             std=isstd,
                             adderr=0.0002,
                             force_gauss=False,
                             sn_gauss=4,
                             show_profile=self._plotit,
-                            use_2dmodel_mask=False,
-                            no_local_sky=False)
+                            use_2dmodel_mask=True,
+                            no_local_sky=True)
+                        spec_boxcar_flx = trcs[ee].BOX_COUNTS.flatten()
+                        spec_boxcar_sig = trcs[ee].BOX_COUNTS_SIG.flatten()
+                        spec_boxcar_wav = trcs[ee].BOX_WAVE.flatten()
+                        spec_optimal_flx = trcs[ee].OPT_COUNTS.flatten()
+                        spec_optimal_sig = trcs[ee].OPT_COUNTS_SIG.flatten()
+                        spec_optimal_wav = trcs[ee].OPT_WAVE.flatten()
+                        extract_boxcar(objmodel, ivar_use, ingpm, waveimg, np.zeros_like(profile_img), trcs[ee])
+                        boxwght = spec.BOX_COUNTS.copy().flatten()
                 if not self._step_skycoeffs and not self._step_basis:
                     skytxt = ""
                     if self._ext_sky: skytxt = "_sky"
@@ -1736,12 +1861,8 @@ class ReduceBase:
                     spec_use[mm, :] = False
                 out_wave, spec, specerr = self.comb_spectrum(wave_bins, raw_wav, raw_flx, raw_err, bpm, spec_use)
                 fitr = np.zeros(out_wave.size)
-                fitr[np.where(
-                    ((out_wave > 10827.0) & (out_wave < 10832.64)) | ((out_wave > 10833.16) & (out_wave < 10839)))] = 1
-                np.savetxt(
-                    self._procpath + "tet02_OriA_HeI10833_scaleErr_wzcorr_fitr_comb{0:02d}.dat".format(
-                        bpm.shape[0] - ss),
-                    np.transpose((out_wave, spec, specerr, fitr)))
+                fitr[np.where(((out_wave > 10827.0) & (out_wave < 10832.64)) | ((out_wave > 10833.16) & (out_wave < 10839)))] = 1
+                np.savetxt(self._procpath + "tet02_OriA_HeI10833_scaleErr_wzcorr_fitr_comb{0:02d}.dat".format(bpm.shape[0] - ss), np.transpose((out_wave, spec, specerr, fitr)))
             # Save the final spectrum
             print("Saving output spectrum...")
             if False:

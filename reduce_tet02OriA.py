@@ -3,8 +3,10 @@ from reduce_base import ReduceBase
 
 def main():
     # Initialise the reduce class
+    step1 = False
+    step2 = not step1
     thisred = Reduce(prefix="tet02OriA",
-                     use_diff=False,
+                     use_diff=True,
                      step_listfiles=False,
                      step_pattern=False,  # Generate an image of the detector pattern
                      step_makedarkfit=False, step_makedarkframe=False,  # Make a dark image
@@ -12,12 +14,12 @@ def main():
                      step_makearc=False,  # Make an arc image
                      step_makediff=False,  # Make difference and sum images
                      step_makecuts=False,  # Make difference and sum images
-                     step_trace=False, step_extract=False, step_basis=False,
+                     step_trace=False, step_extract=False, step_basis=step1,
                      ext_sky=False,  # Trace the spectrum and extract
-                     step_wavecal_prelim=False,  # Calculate a preliminary wavelength calibration solution
-                     step_prepALIS=False,
+                     step_wavecal_prelim=step1,  # Calculate a preliminary wavelength calibration solution
+                     step_prepALIS=step1,
                      # Once the data are reduced, prepare a series of files to be used to fit the wavelength solution with ALIS
-                     step_combspec=False, step_combspec_rebin=True,
+                     step_combspec=False, step_combspec_rebin=step2,
                      # First get the corrected data from ALIS, and then combine all exposures with this step.
                      step_wavecal_sky=False, step_comb_sky=False,
                      # Wavelength calibrate all sky spectra and then combine
@@ -70,7 +72,7 @@ class Reduce(ReduceBase):
 
     def get_dark_frames(self):
         # Group dark files with different exposure times
-        return [["CRIRE.2022-08-10T11:17:33.973.fits", "CRIRE.2022-08-10T11:18:27.477.fits", "CRIRE.2022-08-10T11:19:20.965.fits", "CRIRE.2022-08-10T12:34:13.900.fits", "CRIRE.2022-08-10T12:35:07.381.fits", "CRIRE.2022-08-10T12:36:00.860.fits"]]
+        #return [["CRIRE.2022-08-10T11:17:33.973.fits", "CRIRE.2022-08-10T11:18:27.477.fits", "CRIRE.2022-08-10T11:19:20.965.fits", "CRIRE.2022-08-10T12:34:13.900.fits", "CRIRE.2022-08-10T12:35:07.381.fits", "CRIRE.2022-08-10T12:36:00.860.fits"]]
         return [["CRIRE.2022-10-22T10:50:21.494.fits","CRIRE.2022-10-22T10:50:44.941.fits","CRIRE.2022-10-22T10:51:08.426.fits"],#5s
                 ["CRIRE.2022-10-22T15:50:32.090.fits", "CRIRE.2022-10-22T15:51:10.599.fits", "CRIRE.2022-10-22T15:51:49.070.fits"],#10s
                 ["CRIRE.2022-10-26T11:03:01.530.fits","CRIRE.2022-10-26T11:03:31.004.fits","CRIRE.2022-10-26T11:04:00.460.fits"],#120s
