@@ -1,9 +1,9 @@
 from reduce_base import ReduceBase
-
+import numpy as np
 
 def main():
     # Initialise the reduce class
-    step1 = False
+    step1 = True
     step2 = not step1
     thisred = Reduce(prefix="tet01OriA",
                      use_diff=False,
@@ -12,16 +12,16 @@ def main():
                      step_makedarkfit=False, step_makedarkframe=False,  # Make a dark image
                      step_makeflat=False,  # Make a flatfield image
                      step_makearc=False,  # Make an arc image
-                     step_makediff=False,  # Make difference and sum images
+                     step_makediff=False, step_subbg=False,  # Make difference and sum images
                      step_makecuts=False,  # Make difference and sum images
                      step_trace=False, step_extract=False, step_basis=step1,
                      ext_sky=False,  # Trace the spectrum and extract
                      step_wavecal_prelim=step1,  # Calculate a preliminary wavelength calibration solution
                      step_prepALIS=step1,
                      # Once the data are reduced, prepare a series of files to be used to fit the wavelength solution with ALIS
-                     step_combspec=False, step_combspec_rebin=False,#step2,
+                     step_combspec=False, step_combspec_rebin=step2,
                      # First get the corrected data from ALIS, and then combine all exposures with this step.
-                     step_wavecal_sky=True, step_comb_sky=True,
+                     step_wavecal_sky=False, step_comb_sky=False,
                      # Wavelength calibrate all sky spectra and then combine
                      step_sample_NumExpCombine=False)  # Combine a different number of exposures to estimate how S/N depends on the number of exposures combined.
     thisred.makePaths(redux_path="/Users/rcooke/Work/Research/BBN/helium34/Absorption/2022_ESO_Survey/OrionNebula/CRIRES/")
@@ -114,6 +114,39 @@ class Reduce(ReduceBase):
             return 9  # This is the NDIT
         else:
             return 20  # This is the NDIT
+
+    def get_objprof_limits(self, full=True):
+        """
+        Set the spectral regions to calculate the object profile. If full=True, then a more extended region is used.
+        These values are relevant for tet01 Ori A, during the 2022 observations
+        """
+        if full:
+            # All of the object profile
+            return [1400.0, 1620.0], [1690.0, 1950.0]
+        else:
+            # Part of the object profile
+            return [1410.0, 1600.0], [1720.0, 1940.0]
+
+    def print_SNregions(self, arr):
+        """ Print the S/N in certain regions of the spectrum
+        These values are relevant for tet01 Ori A, during the 2022 observations
+        """
+        print("(box) S/N = ", np.mean(arr[1400:1448]) / np.std(arr[1400:1448]))
+        print("(box) S/N ab = ", np.mean(arr[1706:1726]) / np.std(arr[1706:1726]))
+
+    def get_SNregions_fit(self, flux):
+        """ Print the S/N in certain regions of the spectrum
+        These values are relevant for tet01 Ori A, during the 2022 observations
+        """
+        xfit = np.arange(1580, 1605)
+        ww = (xfit,)
+        modl = np.polyval(np.polyfit(xfit, flux[ww], 2), xfit)
+        SN_spec = 1.0 / np.std(flux[ww] / modl)
+        xfit = np.arange(1706, 1726)
+        ww = (xfit,)
+        modl = np.polyval(np.polyfit(xfit, flux[ww], 2), xfit)
+        SN_abs = 1.0 / np.std(flux[ww] / modl)
+        return SN_spec, SN_abs
 
 
 if __name__ == '__main__':
