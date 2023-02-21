@@ -105,7 +105,7 @@ def model(pixels, zerolev, cont0, cont1, cont2, wscl, wcons, logn, bval):
     return modconv
 
 
-def wavecal_prelim(procpath, numspec, basis=True):
+def wavecal_prelim(procpath, numspec, mn_fit, mx_fit, basis=True):
     bvals = []
     for ff in range(numspec):
         for nn, nod in enumerate(nods):
@@ -117,7 +117,7 @@ def wavecal_prelim(procpath, numspec, basis=True):
                 box_wave, box_cnts, box_cerr, box_wave, opt_cnts, opt_cerr = np.loadtxt(procpath + filn, unpack=True)
             for bo in range(2):
                 if bo==1 and basis: continue
-                mn_fit, mx_fit = 1580.0, 1710.0
+
                 # Grab the data
                 if bo==0:
                     wfit = np.where((box_wave>mn_fit) & (box_wave<mx_fit))
@@ -130,7 +130,16 @@ def wavecal_prelim(procpath, numspec, basis=True):
                 cold = 13.65
                 bval = 6.7
                 cont = [np.median(ffit), 0.0, 0.0]
-                wpar = [1.3/35.0, 0.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and 0.0 means pixel 1657.5 = wavelength 10833.306444
+                # tet01 Ori A
+                #wpar = [1.3/35.0, 0.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and 0.0 means pixel 1657.5 = wavelength 10833.306444
+                wpar = [1.3 / 35.0, -150.0 / 35.0]  # PDS 241 --> -150 means "this absorption occurs 150 pixels to the right of tet01 Ori A"
+                if False:
+                    # Use this code to check wpar values
+                    mfit = model(np.arange(2000), *params)
+                    plt.plot(np.arange(2000), mfit, 'b-')
+                    mfit = model(pfit, *params)
+                    plt.plot(pfit, mfit, 'r-')
+                    plt.show()
                 params = [zerolev, cont[0], cont[1], cont[2], wpar[0], wpar[1], cold, bval]
                 # Perform the fit
                 popt, pcov = curve_fit(model, pfit, ffit, p0=params, sigma=efit)
@@ -138,9 +147,17 @@ def wavecal_prelim(procpath, numspec, basis=True):
                 mfit = model(pfit, *popt)
                 bvals.append(popt[-1])
                 print(filn, bo)
-                plt.plot(pfit, ffit, 'k-', drawstyle='steps-mid')
-                plt.plot(pfit, mfit, 'r-')
+                wvtmp = calculate_wavelength(pfit, popt[4], popt[5])
+                vltmp = 299792.458*(wvtmp-10833.306444) / wvtmp
+                cont = popt[1] + (popt[2] * (wvtmp - wave_he)) + (popt[3] * (wvtmp - wave_he) ** 2)
+                #np.savetxt("PDS241_tmp.dat", np.column_stack((vltmp, ffit/cont)))
+                plt.plot(vltmp, ffit/cont, 'k-', drawstyle='steps-mid')
+                plt.plot(vltmp, mfit/cont, 'r-')
+                plt.axvline(36.6, color='m')
+                plt.xlabel("Velocity relative to strongest He I* absorption")
+                plt.ylabel("Normed flux")
                 plt.show()
+                embed()
                 # Apply the wavelength solution and subtract the zero-level
                 if bo == 0:
                     box_wave = calculate_wavelength(box_wave, popt[4], popt[5])

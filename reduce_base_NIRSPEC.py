@@ -18,6 +18,8 @@ import reduce_utils as rwf
 import copy
 import mpfit
 
+from reduce_base import ReduceBase
+
 
 def myfunct(par, fjac=None, xmod=None, xmid=None, flux=None, error=None):
     model_spline = interpolate.CubicSpline(xmod, par)
@@ -41,7 +43,7 @@ def myfunct_pix(par, fjac=None, xval=None, flux=None, error=None, objspl=None):
     return [status, devs]
 
 
-class ReduceBase:
+class ReduceBaseNirspec(ReduceBase):
     def __init__(self, prefix="targetname", data_folder="Raw/", use_diff=False,
                  step_listfiles=False,
                  step_pattern=False,  # Generate an image of the detector pattern
@@ -165,39 +167,6 @@ class ReduceBase:
 
     def get_ndit(self, idx):
         return 1
-
-    def get_objprof_limits(self, full=True):
-        """
-        Set the spectral regions to calculate the object profile. If full=True, then a more extended region is used.
-        These values are relevant for tet01 Ori A, during the 2022 observations
-        """
-        if full:
-            # All of the object profile
-            return [1400.0, 1620.0], [1690.0, 1950.0]
-        else:
-            # Part of the object profile
-            return [1410.0, 1600.0], [1720.0, 1940.0]
-
-    def print_SNregions(self, arr):
-        """ Print the S/N in certain regions of the spectrum
-        These values are relevant for tet01 Ori A, during the 2022 observations
-        """
-        print("(box) S/N = ", np.mean(arr[1400:1448]) / np.std(arr[1400:1448]))
-        print("(box) S/N ab = ", np.mean(arr[1706:1726]) / np.std(arr[1706:1726]))
-
-    def get_SNregions_fit(self, flux):
-        """ Print the S/N in certain regions of the spectrum
-        These values are relevant for tet01 Ori A, during the 2022 observations
-        """
-        xfit = np.arange(1580, 1605)
-        ww = (xfit,)
-        modl = np.polyval(np.polyfit(xfit, flux[ww], 2), xfit)
-        SN_spec = 1.0 / np.std(flux[ww] / modl)
-        xfit = np.arange(1706, 1726)
-        ww = (xfit,)
-        modl = np.polyval(np.polyfit(xfit, flux[ww], 2), xfit)
-        SN_abs = 1.0 / np.std(flux[ww] / modl)
-        return SN_spec, SN_abs
 
     def run(self):
         if self._step_listfiles: self.step_listfiles()
@@ -714,7 +683,6 @@ class ReduceBase:
                 bgem2 = self._bgem_name.format(2 * mm + 1)
                 img_a -= fits.open(bgem1)[0].data / self._gain
                 img_b -= fits.open(bgem2)[0].data / self._gain
-                print("step subbg")
                 embed()
             ndit = self.get_ndit(mm)
             # Take the difference
@@ -813,7 +781,6 @@ class ReduceBase:
         c = (c.T / scl).T
 
         if debug:
-            print("debugging...")
             embed()
         try:
             Vbase = np.linalg.inv(np.dot(lhs, lhs.T))
@@ -864,9 +831,7 @@ class ReduceBase:
         return gpm_img
 
     def object_profile(self, allflux, allivar, allspecimg, allspatimg, gpm_img, maxspatl, maxspatr, full=False):
-        limfl, limfr = self.get_objprof_limits(full=True)
-        limpl, limpr = self.get_objprof_limits(full=False)
-        evpix = (allspecimg > limfl[0]) & (allspecimg < limfr[1]) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
+        evpix = (allspecimg > 1400.0) & (allspecimg < 1950) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
         # Perform the b-spline fit
         """
         iopt,kx,ky,m=          -1     ,      3     ,      3   ,    54010
@@ -908,22 +873,22 @@ class ReduceBase:
         tsty = np.array([2, 2])
         ev_spec, ev_spat = allspecimg[evpix], allspatimg[evpix]
         idxs = np.where(evpix)
-        gpm_img_new = gpm_img.copy() & (allivar != 0)
+        gpm_img_new = gpm_img.copy() & (allivar!=0)
         for tt in range(tsty.size):
             # This seems to work OK for tet02OriA_2021
             if full:
                 print("Using full object profile")
-                fitpix = (gpm_img_new) & (((allspecimg > limfr[0]) & (allspecimg < limfr[1])) | ((allspecimg > limfl[0]) & (allspecimg < limfl[1]))) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
+                fitpix = (gpm_img_new) & (((allspecimg > 1690) & (allspecimg < 1950)) | ((allspecimg > 1400) & (allspecimg < 1620))) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
             else:
                 print("Using part object profile")
-                fitpix = (gpm_img_new) & (((allspecimg > limpr[0]) & (allspecimg < limpr[1])) | ((allspecimg > limpl[0]) & (allspecimg < limpl[1]))) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
+                fitpix = (gpm_img_new) & (((allspecimg > 1720) & (allspecimg < 1940)) | ((allspecimg > 1410) & (allspecimg < 1600))) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
 #             if full:
 #                 fitpix = (gpm_img_new) & (allspecimg > 1400) & (allspecimg < 1950) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
 # #                fitpix = (gpm_img_new) & (((allspecimg > 1700) & (allspecimg < 1950)) | ((allspecimg > 1400) & (allspecimg < 1610))) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
 #             else:
 #                 fitpix = (gpm_img_new) & (((allspecimg > 1690) & (allspecimg < 1940)) | ((allspecimg > 1410) & (allspecimg < 1610))) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
             # Make ty
-            ty = np.linspace(limfl[0], limfr[1], tsty[tt])
+            ty = np.linspace(1400, 1950, tsty[tt])
             ty = np.append(np.ones(3) * ty[0], np.append(ty, ty[-1] * np.ones(3)))
             # Make tx
             nxest = int(3+np.sqrt(np.sum(fitpix)/2)) - 6
@@ -979,7 +944,6 @@ class ReduceBase:
         return outImage
 
     def mean_bg(self, inImage, inMask, thisboxpix, allspecimg, allspatimg, nwindow_left, nwindow_right, idx):
-        limfl, limfr = self.get_objprof_limits(full=True)
         out_wave, raw_specs = self.comb_prep(use_corrected=False)
         raw_wav, raw_flx, raw_err, bpm = self.comb_reject(out_wave, raw_specs, use_corrected=False)
         thiswave = raw_wav[idx, :]
@@ -1004,7 +968,7 @@ class ReduceBase:
             # Load the bspline and the parameters needed for the fit
             with open(self._procpath + 'bgfitted_{0:02d}.knots'.format(sp), 'rb') as knots_file:
                 knots = pickle.load(knots_file)
-            evpix = (this_allspecimg > limfl[0]) & (this_allspecimg < limfr[1]) & (allspatimg > -nwindow_left) & (
+            evpix = (this_allspecimg > 1400.0) & (this_allspecimg < 1950) & (allspatimg > -nwindow_left) & (
                         allspatimg < nwindow_right)
             ev_spec, ev_spat = this_allspecimg[evpix], allspatimg[evpix]
             idxs = np.where(evpix)
@@ -1022,8 +986,7 @@ class ReduceBase:
         return outImage, outgpm
 
     def iterate_bgfit(self, HIIresid, gpm_img, allspecimg, allspatimg, maxspatl, maxspatr, idx, trace_gpm, plotit=False):
-        limfl, limfr = self.get_objprof_limits(full=True)
-        evpix = (allspecimg > limfl[0]) & (allspecimg < limfr[1]) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
+        evpix = (allspecimg > 1400.0) & (allspecimg < 1950) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
         # Perform the b-spline fit
         """
         iopt,kx,ky,m=          -1     ,      3     ,      3   ,    54010
@@ -1085,7 +1048,6 @@ class ReduceBase:
             try:
                 tck = interpolate.bisplrep(allspecimg[fitpix], allspatimg[fitpix], HIIresid[fitpix], task=-1, tx=tx, ty=ty)
             except:
-                print("ticks failed...")
                 embed()
                 assert (False)
             outImage = np.zeros_like(HIIresid)
@@ -1102,7 +1064,7 @@ class ReduceBase:
             pickle.dump(tck, pickle_file)
         if plotit:
             #slice = np.meshgrid(np.arange(outImage.shape[0]), np.arange(outImage.shape[1]), indexing='ij')
-            slice = np.meshgrid(np.arange(limfl[0], limfr[1]), np.arange(outImage.shape[1]), indexing='ij')
+            slice = np.meshgrid(np.arange(1400, 1900), np.arange(outImage.shape[1]), indexing='ij')
             plt.subplot(131)
             plt.imshow(outImage[slice], vmin=0, vmax=10000)
             plt.subplot(132)
@@ -1110,7 +1072,6 @@ class ReduceBase:
             plt.subplot(133)
             plt.imshow(outImage[slice] - HIIresid[slice], vmin=-300, vmax=300)
             plt.show()
-            print("resids plotted")
             embed()
         return outImage, gpm_img_new
         # from pypeit import flatfield
@@ -1132,7 +1093,7 @@ class ReduceBase:
         coeffs = np.zeros((frame.shape[0], nbasis))
         maxxloc = max(maxspatl, maxspatr)
         for ss in range(frame.shape[0]):
-            xdat = np.arange(frame.shape[1]) - spec.TRACE_SPAT[ss]
+            xdat = np.arange(frame.shape[1]) - spec.TRACE_SPAT[0, ss]
             xfit = (xdat + maxxloc) / maxxloc - 1
             yfit = frame[ss, :]
             wfit = ivar[ss, :]  # DONT CHANGE THIS WITHOUT CHANGING OUTFLUXBOX_ERR BELOW!!!
@@ -1197,7 +1158,7 @@ class ReduceBase:
             print(mu, sig)
             plt.hist(plttst, bins=np.linspace(-5, 5, 20))
             plt.show()
-        return HIIflux, outfluxbox, outfluxbox_err, outfluxb, outfluxb_err
+        return HIIflux, outfluxbox, outfluxbox_err
 
     def objprof2D(self, allspecimg, allimg, extfrm_use, gpm_img, maxspatl, maxspatr):
         tsty = np.array([3, 7, 21])
@@ -1223,7 +1184,6 @@ class ReduceBase:
             try:
                 tck = interpolate.bisplrep(allspecimg[fitpix], allspatimg[fitpix], HIIresid[fitpix], task=-1, tx=tx, ty=ty)
             except:
-                print("ticks failed in objprof2d")
                 embed()
                 assert (False)
 
@@ -1246,7 +1206,7 @@ class ReduceBase:
         sigrej = 3
         nbasis = 7  # 25
         binsize = 0.1
-        nwindow = 9  # +/- 30 pixels is about the maximum window that can be used around the object trace when the nod is +/-6.5 arcseconds from the slit centre
+        nwindow = 20  # +/- 30 pixels is about the maximum window that can be used around the object trace when the nod is +/-6.5 arcseconds from the slit centre
         nspec, nspat = extfrm_use.shape
         # Set the window edges
         ledge, redge = edges
@@ -1256,7 +1216,7 @@ class ReduceBase:
         # Trace the spectral tilt
         #allspecimg = np.arange(extfrm_use.shape[0])[:, None].repeat(extfrm_use.shape[1], axis=1)
         allspecimg = self.trace_tilt(spec.TRACE_SPAT.flatten(), trcnum=min(nwindow_left, nwindow_right), plotit=False)
-        allspatimg = (spatimg - spec.TRACE_SPAT[np.newaxis,:].T)
+        allspatimg = (spatimg - spec.TRACE_SPAT.T)
         allspec = allspecimg.flatten()
         allspat = allspatimg.flatten()
         allflux = extfrm_use.flatten()
@@ -1308,8 +1268,7 @@ class ReduceBase:
         opimg = self.object_profile(extfrm_use_nrm, ivar_use_nrm, allspecimg, allspatimg, gpm_img, nwindow_left, nwindow_right, full=fullprof)
         xloc = 0.5 * (bins[1:] + bins[:-1])
         if False:
-            limpl, limpr = self.get_objprof_limits(full=False)
-            tmp = (allgpm) & ((allspec > limpr[1]) & (allspec < limpr[1])) | ((allspec > limpl[0]) & (allspec < limpl[1]))
+            tmp = (allgpm) & ((allspec > 1800) & (allspec < 1950)) | ((allspec > 1400) & (allspec < 1550))
             gpm = np.where(tmp)
             # First estimate of object profile
             cnts, _ = np.histogram(allspat[gpm], bins=bins, weights=extfrm_use_med.flatten()[gpm])
@@ -1378,7 +1337,7 @@ class ReduceBase:
         # opmodel[gpm_img_new] = objmodel
 
         # Now perform the fit
-        #slice = np.meshgrid(np.arange(1600, 1750), np.arange(extfrm_use.shape[1]), indexing='ij')
+        slice = np.meshgrid(np.arange(1600, 1750), np.arange(extfrm_use.shape[1]), indexing='ij')
         trace_mask = np.abs(allspatimg) > 3.0
         numiter = 5 if not self._use_diff else 1
         mean_bg = False
@@ -1397,13 +1356,13 @@ class ReduceBase:
             #gpm_img_tmp = gpm_img.copy()
             for ii in range(numiter):
                 if ii == 0: this_nbasis = nbasis
-                elif ii <= 2: this_nbasis = 3
+                elif ii <=2: this_nbasis = 3
                 else: this_nbasis = 2
                 if self._use_diff:
                     bgfitted = np.zeros(extfrm_use.shape)
                 else:
                     # HIIresid, outfluxbox, outfluxbox_err = self.iterate_objfit(extfrm_use-bgfitted, ivar_use, gpm_img_new, spec, opspl, xloc, nbasis, numpixfit=tst[tt])
-                    HIIresid, outfluxbox, outfluxbox_err, outfluxopt, outfluxopt_err = self.iterate_objfit(extfrm_use - bgfitted, ivar_use,
+                    HIIresid, outfluxbox, outfluxbox_err = self.iterate_objfit(extfrm_use - bgfitted, ivar_use,
                                                                                gpm_img_new, spec, opimg, nwindow_left,
                                                                                nwindow_right, this_nbasis,
                                                                                numpixfit=tst[tt])
@@ -1426,8 +1385,8 @@ class ReduceBase:
                     spec = findobj_skymask.objs_in_slit(
                         extfrm_use - bgfitted, ivar_use, gpm_img_new, ledge, redge,
                         ncoeff=self._polyord, boxcar_rad=3.0,
-                        show_fits=self._plotit, nperslit=1)[0]
-                    allspatimg = (spatimg - spec.TRACE_SPAT[np.newaxis,:].T)
+                        show_fits=self._plotit, nperslit=1)
+                    allspatimg = (spatimg - spec.TRACE_SPAT.T)
                     allspat = allspatimg.flatten()
                     if False:
                         tmp = np.where(gpm_img_new.flatten() & (np.abs(allspat)<20))
@@ -1437,7 +1396,8 @@ class ReduceBase:
                         plt.show()
                         embed()
                         assert(False)
-                    self.print_SNregions(outfluxbox)
+                    print("(box) S/N = ", np.mean(outfluxbox[1400:1448]) / np.std(outfluxbox[1400:1448]))
+                    print("(box) S/N ab = ", np.mean(outfluxbox[1706:1726]) / np.std(outfluxbox[1706:1726]))
                 # plt.plot(outfluxbox)
                 # xplot = np.arange(1338,1448)
                 # modl = np.polyval(np.polyfit(xplot,spec_boxcar_flx[1338:1448],1), xplot)
@@ -1465,13 +1425,12 @@ class ReduceBase:
             SN_spectmp, SN_abstmp = np.zeros(subtst.size), np.zeros(subtst.size)
             for br in range(subtst.size):
                 spec.BOX_RADIUS = subtst[br]
-                # print("about to extract")
-                # embed()
-                # assert False
                 extract_boxcar(profile_img, ivar_use, gpm_img_new, allspecimg, np.zeros_like(profile_img), spec)
                 boxwght = spec.BOX_COUNTS.copy().flatten()
                 extract_boxcar(np.ones_like(profile_img), ivar_use, gpm_img_new, allspecimg, np.zeros_like(profile_img), spec)
                 boxskywght = spec.BOX_COUNTS.copy().flatten()
+                # embed()
+                # assert False
                 extract_boxcar(extfrm_use, ivar_use, gpm_img_new, allspecimg, bgfitted, spec)
                 extract_optimal(extfrm_use, ivar_use, gpm_img_new, allspecimg, bgfitted, gpm_img_new, profile_img, spec, min_frac_use=0.05, base_var=None, count_scale=None, noise_floor=None)
                 if False:
@@ -1539,13 +1498,27 @@ class ReduceBase:
                 # plt.plot(spec_boxcar_wav, spec_boxcar_flx, 'r-', drawstyle='steps-mid')
                 # plt.plot(spec_optimal_wav, spec_optimal_flx, 'b-', drawstyle='steps-mid')
                 # plt.show()
-                SN_spectmp[br], SN_abstmp[br] = self.get_SNregions_fit(spec_boxcar_flx)
+                ww = (np.arange(1580, 1605),)
+                modbox = np.polyval(np.polyfit(spec_boxcar_wav[ww], spec_boxcar_flx[ww], 2), spec_boxcar_wav[ww])
+                modopt = np.polyval(np.polyfit(spec_optimal_wav[ww], spec_optimal_flx[ww], 2), spec_optimal_wav[ww])
+                print(1.0/np.std(spec_boxcar_flx[ww] / modbox))
+                print(1.0 / np.std(spec_optimal_flx[ww] / modopt))
+#                plt.plot(spec_boxcar)
+                xplot = np.arange(1580,1605)
+                modl = np.polyval(np.polyfit(xplot,spec_boxcar_flx[1580:1605], 2), xplot)
+                SN_spectmp[br] = 1.0/np.std(spec_boxcar_flx[1580:1605]/modl)
+                xplot = np.arange(1706,1726)
+                modl = np.polyval(np.polyfit(xplot, spec_boxcar_flx[1706:1726], 2), xplot)
+                SN_abstmp[br] = 1.0/np.std(spec_boxcar_flx[1706:1726]/modl)
 #            plt.show()
             SN_spec[tt] = np.max(SN_spectmp)
             SN_abs[tt] = np.max(SN_abstmp)
-            this_SN_spec, this_SN_abs = self.get_SNregions_fit(spec_boxcar_flx)
-            print("(box) S/N = ", this_SN_spec)
-            print("(box) S/N ab = ", this_SN_abs)
+            wlft = (np.arange(1580, 1605),)
+            wrgt = (np.arange(1706, 1726),)
+            modlft = np.polyval(np.polyfit(spec_boxcar_wav[wlft], spec_boxcar_flx[wlft], 2), spec_boxcar_wav[wlft])
+            modrgt = np.polyval(np.polyfit(spec_boxcar_wav[wrgt], spec_boxcar_flx[wrgt], 2), spec_boxcar_wav[wrgt])
+            print("(box) S/N = ", 1.0 / np.std(spec_boxcar_flx[wlft] / modlft))
+            print("(box) S/N ab = ", 1.0 / np.std(spec_boxcar_flx[wrgt] / modrgt))
         if testing or subtesting:
             if testing:
                 plt.subplot(211)
@@ -1654,20 +1627,16 @@ class ReduceBase:
             darkcurr = 0.03
             exptime, etim = self.get_exptime(ff)
             msflat = fits.open(self._masterflat_name)[0].data.T
+            msdark = fits.open(self.get_darkname(self._masterdark_name, etim))[0].data.T
             basevar = procimg.base_variance(rn2img, darkcurr=darkcurr, exptime=exptime)
-            if self._use_diff:
-                frame_for_ivar = framesum
-            else:
-                msdark = fits.open(self.get_darkname(self._masterdark_name, etim))[0].data.T
-                frame_for_ivar = ((frame / self._gain) + msdark) * self._gain
+            if self._use_diff: frame_for_ivar = framesum
+            else: frame_for_ivar = ((frame / self._gain) + msdark) * self._gain
             rawvarframe = procimg.variance_model(basevar, frame_for_ivar)
             # Now work on frame2
             rn2img2 = procimg.rn2_frame(datasec_img, ronoise2)
             basevar2 = procimg.base_variance(rn2img2, darkcurr=darkcurr, exptime=exptime)
-            if self._use_diff:
-                frame2_for_ivar = framesum
-            else:
-                frame2_for_ivar = ((frame2 / self._gain) + msdark) * self._gain
+            if self._use_diff: frame2_for_ivar = framesum
+            else: frame2_for_ivar = ((frame2 / self._gain) + msdark) * self._gain
             rawvarframe2 = procimg.variance_model(basevar2, frame2_for_ivar)
             # Ivar
             ivar = utils.inverse(rawvarframe)
@@ -1731,7 +1700,7 @@ class ReduceBase:
                 objmodel = np.zeros_like(frame)
                 ivarmodel = np.zeros_like(frame)
                 extractmask = np.zeros_like(frame)
-                trcs = [trc_pos[0], trc_neg[0]]
+                trcs = [trc_pos, trc_neg]
                 isstd = False  # True
                 if self._ext_sky: isstd = False
                 for tt in range(2):
@@ -1826,8 +1795,7 @@ class ReduceBase:
 
     def step_wavecal_prelim(self):
         usePath = self._procpath
-        limpl, limpr = self.get_objprof_limits(full=False)
-        rwf.wavecal_prelim(usePath, self._numframes, limpl[1], limpr[0])
+        rwf.wavecal_prelim(usePath, self._numframes)
 
     def step_prepALIS(self):
         out_wave, raw_specs = self.comb_prep(use_corrected=False)
@@ -1891,7 +1859,6 @@ class ReduceBase:
         get_wavename = self._procpath + self._prefix + "_HeI10833_scaleErr_wzcorr_comb_rebin.dat"
         out_wave = np.loadtxt(get_wavename, unpack=True, usecols=(0,))
         wav, flx, err, err_orig, final_flux = self.comb_rebin(out_wave, raw_specs, sky=True)
-        print("in wavecal sky")
         embed()
         exptime, etim = self.get_exptime(0.0)
         plt.plot(wav, flx/exptime, 'r-', drawstyle='steps-mid')
@@ -1952,7 +1919,6 @@ class ReduceBase:
 
     def step_sample_NumExpCombine(self):
         nsample = 100
-        print("sample_numexpcombine")
         embed()
         out_wave, raw_specs = self.comb_prep(use_corrected=True)
         nspec = len(raw_specs) - 4

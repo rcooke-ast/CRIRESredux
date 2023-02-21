@@ -15,7 +15,7 @@ def main():
                      step_makearc=False,  # Make an arc image
                      step_makediff=False, step_subbg=False,  # Make difference and sum images
                      step_makecuts=False,  # Make difference and sum images
-                     step_trace=False, step_extract=False, step_basis=step1,
+                     step_trace=False, step_extract=False, step_basis=False,#step1,
                      ext_sky=False,  # Trace the spectrum and extract
                      step_wavecal_prelim=step1,  # Calculate a preliminary wavelength calibration solution
                      step_prepALIS=step1,
@@ -32,14 +32,18 @@ def main():
 class Reduce(ReduceBase):
 
     def get_science_frames(self):
-        return [["CRIRE.2023-01-29T02:43:36.699.fits", "CRIRE.2023-01-29T03:05:05.963.fits"],  # A 1.0 B 6.5
-                ["CRIRE.2023-01-29T02:47:48.547.fits", "CRIRE.2023-01-29T03:00:42.213.fits"],  # B 1 A 6.5
-                ["CRIRE.2023-01-29T03:09:08.903.fits", "CRIRE.2023-01-29T02:56:04.258.fits"],  # B 6.5 A 1.0
-                ["CRIRE.2023-01-29T02:51:51.199.fits", "CRIRE.2023-01-29T03:13:27.874.fits"],  # B 1.0 A 6.5
-                ["CRIRE.2023-01-29T03:27:36.514.fits", "CRIRE.2023-01-29T03:23:17.219.fits"],  # B 6.5 A 6.5
+        return [["CRIRE.2023-01-29T02:43:36.699.fits", "CRIRE.2023-01-29T02:47:48.547.fits"],  # A 1.0 B 1.0
+                ["CRIRE.2023-01-29T02:51:51.199.fits", "CRIRE.2023-01-29T02:56:04.258.fits"],  # B 1.0 A 1.0
+                ["CRIRE.2023-01-29T03:27:36.514.fits", "CRIRE.2023-01-29T03:00:42.213.fits"],  # B 6.5 A 6.5
                 ["CRIRE.2023-01-29T03:31:39.291.fits", "CRIRE.2023-01-29T03:35:56.830.fits"],  # B 6.5 A 6.5
                 ["CRIRE.2023-01-29T03:56:29.285.fits", "CRIRE.2023-01-29T03:40:28.416.fits"],  # B 4.5 A 3.0
                 ["CRIRE.2023-01-29T03:45:46.666.fits", "CRIRE.2023-01-29T03:51:11.745.fits"]]  # B 3.0 A 4.5
+        """
+        CRIRE.2023-01-29T03:05:05.963.fits   B 6.5   LOW COUNTS
+        CRIRE.2023-01-29T03:23:17.219.fits   A 6.5   LOW COUNTS
+        CRIRE.2023-01-29T03:09:08.903.fits   B 6.5   ZERO COUNTS -- effectively the sky/dark
+        CRIRE.2023-01-29T03:13:27.874.fits   A 6.5   LOW COUNTS
+        """
 
     def get_flat_frames(self):
         return ["CRIRE.2023-01-29T14:36:21.954.fits",
@@ -64,7 +68,7 @@ class Reduce(ReduceBase):
 
     def get_exptime(self, idx):
         ndit = self.get_ndit(idx)
-        if idx in [6, 7]:
+        if idx in [4, 5]:
             etim = 300  # This is the DIT
         else:
             etim = 240  # This is the DIT
@@ -81,17 +85,17 @@ class Reduce(ReduceBase):
         """
         if full:
             # All of the object profile
-            return [1400.0, 1620.0], [1690.0, 1950.0]
+            return [1400.0, 1720.0], [1800.0, 1950.0]
         else:
             # Part of the object profile
-            return [1410.0, 1600.0], [1720.0, 1940.0]
+            return [1410.0, 1700.0], [1820.0, 1940.0]
 
     def print_SNregions(self, arr):
         """ Print the S/N in certain regions of the spectrum
         These values are relevant for PDS 241, during the 2023 Jan observations
         """
         print("(box) S/N = ", np.mean(arr[1400:1448]) / np.std(arr[1400:1448]))
-        print("(box) S/N ab = ", np.mean(arr[1706:1726]) / np.std(arr[1706:1726]))
+        print("(box) S/N ab = ", np.mean(arr[1796:1826]) / np.std(arr[1796:1826]))
 
     def get_SNregions_fit(self, flux):
         """ Print the S/N in certain regions of the spectrum
@@ -101,11 +105,12 @@ class Reduce(ReduceBase):
         ww = (xfit,)
         modl = np.polyval(np.polyfit(xfit, flux[ww], 2), xfit)
         SN_spec = 1.0 / np.std(flux[ww] / modl)
-        xfit = np.arange(1706, 1726)
+        xfit = np.arange(1796, 1826)
         ww = (xfit,)
         modl = np.polyval(np.polyfit(xfit, flux[ww], 2), xfit)
         SN_abs = 1.0 / np.std(flux[ww] / modl)
         return SN_spec, SN_abs
+
 
 if __name__ == '__main__':
     main()

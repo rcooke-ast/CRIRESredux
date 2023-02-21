@@ -6,13 +6,13 @@ def main():
     step1 = True
     step2 = not step1
     thisred = Reduce(prefix="tet01OriA",
-                     use_diff=False,
+                     use_diff=True,
                      step_listfiles=False,
                      step_pattern=False,  # Generate an image of the detector pattern
                      step_makedarkfit=False, step_makedarkframe=False,  # Make a dark image
                      step_makeflat=False,  # Make a flatfield image
                      step_makearc=False,  # Make an arc image
-                     step_makediff=False, step_subbg=False,  # Make difference and sum images
+                     step_makediff=True, step_subbg=False,  # Make difference and sum images
                      step_makecuts=False,  # Make difference and sum images
                      step_trace=False, step_extract=False, step_basis=step1,
                      ext_sky=False,  # Trace the spectrum and extract
