@@ -76,6 +76,7 @@ class ReduceBase:
         self._velstep = 1.5  # Sample the FWHM by ~2.5 pixels
         self._maskval = -99999999  # Masked value for combining data
         self._sigcut = 3.0  # Rejection level when combining data
+        self._comb_set = -1
 
         self.makePaths()
 
@@ -148,6 +149,25 @@ class ReduceBase:
         self._bgem_name = self._procpath + "bgem_FR{0:02d}_" + self._chip_str
         self._cut_name = self._procpath + "cuts_FR{0:02d}_" + self._chip_str
 
+    def is_frame_masked(self, frnum):
+        masked = False
+        if frnum in []:
+            masked = True
+        return masked
+
+    def is_frame_in_set(self, frnum, comb_set):
+        # Just assume all frames are OK
+        if comb_set < 0:
+            return False
+        frame_in_set = False
+        if comb_set == 0:
+            if frnum in []:
+                frame_in_set = True
+        elif comb_set == 1:
+            if frnum in []:
+                frame_in_set = True
+        return frame_in_set
+
     def get_science_frames(self):
         return None
 
@@ -165,6 +185,9 @@ class ReduceBase:
 
     def get_ndit(self, idx):
         return 1
+
+    def get_scale(self, idx):
+        return 1.0
 
     def get_objprof_limits(self, full=True):
         """
@@ -226,6 +249,9 @@ class ReduceBase:
             usePath = self._procpath
             print(self._numframes * len(self._nods), self._numframes, len(self._nods))
             for ff in range(self._numframes * len(self._nods)):
+                if self.is_frame_masked(ff) or not self.is_frame_in_set(ff, self._comb_set):
+                    print("FRAME {0:d} is masked!!".format(ff))
+                    continue
                 if sky:
                     outname = usePath + "spec1d_{0:02d}_{1:s}_sky_wzcorr.dat".format(ff // 2, self._nods[ff % 2])
                     opt_wave, opt_cnts, opt_cerr = np.loadtxt(outname, usecols=(0, 1, 2), unpack=True)
@@ -243,8 +269,12 @@ class ReduceBase:
             usePath = self._procpath
             for ff in range(self._numframes):
                 for nn, nod in enumerate(self._nods):
+                    this_ff = 2 * ff + nn
+                    if self.is_frame_masked(ff):
+                        print("FRAME {0:d} is masked!!".format(this_ff))
+                        continue
                     #outname = usePath + "spec1d_wave_{0:02d}_{1:s}.dat".format(ff, nod)
-                    outname = usePath + "spec1d_wave_{0:02d}.dat".format(2 * ff + nn)
+                    outname = usePath + "spec1d_wave_{0:02d}.dat".format(this_ff)
                     #box_wave, box_cnts, box_cerr, opt_wave, opt_cnts, opt_cerr = np.loadtxt(outname, unpack=True)
                     box_wave, box_cnts, box_cerr, box_sky = np.loadtxt(outname, unpack=True)
                     raw_specs.append(XSpectrum1D.from_tuple((box_wave, box_cnts, box_cerr), verbose=False))
@@ -282,7 +312,7 @@ class ReduceBase:
                 raw_flx[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].flux
                 raw_err[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].sig
             else:
-                medval = np.median(raw_specs[sp].flux[raw_specs[sp].flux != 0.0])
+                medval = 1.0#np.median(raw_specs[sp].flux[raw_specs[sp].flux != 0.0])
                 raw_flx[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].flux / medval
                 raw_err[sp, :raw_specs[sp].wavelength.size] = raw_specs[sp].sig / medval
         # Mask bad pixels
@@ -379,7 +409,7 @@ class ReduceBase:
                 if sky:
                     out_specname = usePath + self._prefix+"_HeI10833_scaleErr_wzcorr_comb_rebin_sky.dat"
                 else:
-                    out_specname = usePath + self._prefix+"_HeI10833_scaleErr_wzcorr_comb_rebin.dat"
+                    out_specname = usePath + self._prefix+"_HeI10833_scaleErr_wzcorr_comb_rebin_spec{0:d}.dat".format(self._comb_set)
                 np.savetxt(out_specname, np.transpose((out_wave, spec, specerr_new)))
                 plt.plot(out_wave, spec, 'k-', drawstyle='steps-mid')
                 plt.show()
@@ -387,7 +417,8 @@ class ReduceBase:
         return out_wave, spec, specerr_new, specerr, final_flux
 
     def scale_variance(self, out_wave, spec, specerr, getSNR=False):
-        wc = np.where((out_wave >= 10828.0) & (out_wave <= 10830.0))
+        wc = np.where((out_wave >= 10828.25) & (out_wave <= 10829.25))
+        # wc = np.where((out_wave >= 10828.0) & (out_wave <= 10830.0))
 #        wc = np.where((out_wave >= 10836.4) & (out_wave <= 10837.2))
         mcf = np.polyfit(out_wave[wc], spec[wc], 2)
         modcont = np.polyval(mcf, out_wave[wc])
@@ -716,6 +747,8 @@ class ReduceBase:
                 img_b -= fits.open(bgem2)[0].data / self._gain
                 print("step subbg")
                 embed()
+            scale = self.get_scale(mm)
+            img_b *= scale
             ndit = self.get_ndit(mm)
             # Take the difference
             diff = (img_a - img_b) * ndit
@@ -808,7 +841,6 @@ class ReduceBase:
         scl[scl == 0] = 1
 
         # Solve the least squares problem.
-
         c, resids, rank, s = np.linalg.lstsq(lhs.T / scl, rhs.T, rcond)
         c = (c.T / scl).T
 
@@ -816,7 +848,7 @@ class ReduceBase:
             print("debugging...")
             embed()
         try:
-            Vbase = np.linalg.inv(np.dot(lhs, lhs.T))
+            Vbase = np.linalg.inv(np.dot(van.T*w, van))
         except np.linalg.LinAlgError:
             # The fit didn't work...
             Vbase = np.zeros((lhs.shape[0], lhs.shape[0]))
@@ -863,7 +895,7 @@ class ReduceBase:
             print(f"Iteration {ii} :: Number of new bad pixels = {nnew}... total number of masked pixels = {nmask}")
         return gpm_img
 
-    def object_profile(self, allflux, allivar, allspecimg, allspatimg, gpm_img, maxspatl, maxspatr, full=False):
+    def object_profile(self, allflux, allivar, allspecimg, allspatimg, gpm_img, maxspatl, maxspatr, full=False, plotscat=False):
         limfl, limfr = self.get_objprof_limits(full=True)
         limpl, limpr = self.get_objprof_limits(full=False)
         evpix = (allspecimg > limfl[0]) & (allspecimg < limfr[1]) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
@@ -956,7 +988,7 @@ class ReduceBase:
         outImage *= np.median(norm[norm != 0.0])
         idxf = np.where(fitpix)
         idxt = fitpix & (np.abs((allflux - (outImage * utils.inverse(norm))) * np.sqrt(allivar)) > 2.5)
-        if True:
+        if plotscat:
             plt.subplot(211)
             plt.scatter(allspatimg[idxf], (allflux[idxf] - (outImage * utils.inverse(norm))[idxf]) * np.sqrt(allivar[idxf]), c=allspecimg[idxf], s=0.1)
             plt.ylim(-15, 15)
@@ -1199,6 +1231,87 @@ class ReduceBase:
             plt.show()
         return HIIflux, outfluxbox, outfluxbox_err, outfluxb, outfluxb_err
 
+    def iterate_objfit_chisq(self, frame, ivar, gpm_img, spec, opspl, maxspatl, maxspatr, numpixfit=10):
+        """
+        Gradually increase the value of nbasis until the reduced chi-squared drops below 1.
+        """
+        print("ENTERING  ::  iterate_objfit_chisq")
+        outfluxb = np.zeros(frame.shape[0])
+        outfluxb_err = np.zeros(frame.shape[0])
+        outfluxbox = np.zeros(frame.shape[0])
+        outfluxbox_err = np.zeros(frame.shape[0])
+        HIIflux = np.zeros(frame.shape)
+        model = np.zeros(frame.shape)
+        modelstar = np.zeros(frame.shape)
+        idealSN = np.zeros(frame.shape[0])
+        use_nbasis = np.zeros(frame.shape[0])
+        maxxloc = max(maxspatl, maxspatr)
+        for ss in range(frame.shape[0]):
+            nbasis = 2
+            breaktime = False
+            while True:
+                xdat = np.arange(frame.shape[1]) - spec.TRACE_SPAT[ss]
+                xfit = (xdat + maxxloc) / maxxloc - 1
+                yfit = frame[ss, :]
+                wfit = ivar[ss, :]  # DONT CHANGE THIS WITHOUT CHANGING OUTFLUXBOX_ERR BELOW!!!
+                gd = np.where((xdat > -maxspatl) & (xdat < maxspatr) & (gpm_img[ss, :]))  # Only include pixels that are defined within the spatial profile domain
+                # Construct the vandermonde matrix
+                vander = np.ones((xfit[gd].size, nbasis))
+                vander[:, 0] = opspl[ss, :][gd]# opspl(xdat[gd])
+                vander[:, 1:] = np.polynomial.legendre.legvander(xfit[gd], nbasis - 2)
+                c, cov = self.basis_fitter(xfit[gd], yfit[gd], vander.copy(), w=wfit[gd], debug=False)  # ss==1000)
+                ccont = c.copy()
+                ccont[1] = 0
+                gdc = np.where((np.abs(xfit) <= 1.0))  # Only include pixels that are defined within the spatial profile domain
+                vanderc = np.ones((xfit[gdc].size, nbasis))
+                vanderc[:, 0] = opspl[ss, :][gdc]#opspl(xdat[gdc])
+                vanderc[:, 1:] = np.polynomial.legendre.legvander(xfit[gdc], nbasis - 2)  # The rest of the basis are the odd Legendre polynomials
+                HIIflux[ss, gdc[0]] = frame[ss, gdc[0]] - np.dot(vanderc, c * np.append(1, np.zeros(nbasis - 1)))
+                model[ss, gd[0]] = np.dot(vander, c)
+                modelstar[ss, gd[0]] = np.dot(vander, c * np.append(1, np.zeros(nbasis - 1)))
+                if False:
+                    plt.plot(xfit[gd], yfit[gd], 'k-', drawstyle='steps-mid')
+                    plt.plot(xfit[gd], np.dot(vander, c), 'r-')
+                    ccont = c.copy()
+                    ccont[0] = 0
+                    plt.plot(xfit[gdc], np.dot(vanderc, ccont), 'b--')
+                    plt.show()
+                outfluxb[ss] = c[0]
+                outfluxb_err[ss] = np.sqrt(cov[0, 0])
+                #outfluxbox[ss] = np.sum(yfit[gd] - HIIflux[ss, gd]) / np.sum(vander[:, 0])
+                outfluxbox[ss] = np.sum(yfit[gd]) / np.sum(vander[:, 0])
+                outfluxbox_err[ss] = np.sqrt(np.sum(utils.inverse(wfit[gd]))) / np.sum(vander[:, 0])
+                idealSN[ss] = np.sum(yfit[gd]) / np.sqrt(np.sum(1 / wfit[gd]))
+                # Test if this spectral element has converged
+                dof = gd[0].size - nbasis
+                redchisq = np.sum( (yfit[gd]-model[ss, gd[0]])**2 * wfit[gd] ) / dof
+                redchisq_med = gd[0].size * np.median((yfit[gd] - model[ss, gd[0]]) ** 2 * wfit[gd]) / dof
+                if np.isnan(redchisq_med): redchisq_med = 0.0
+
+                # if nbasis == 2: plt.plot(xfit[gd], yfit[gd], 'k-', drawstyle='steps-mid')
+                # plt.plot(xfit[gd], model[ss, gd[0]])
+                # print(ss, nbasis, redchisq, redchisq_med, dof)
+                if breaktime:
+                    break
+                if redchisq_med <= 1.0:
+                    if nbasis == 2 or gd[0].size < nbasis or dof < 10:
+                        use_nbasis[ss] = nbasis
+                        break
+                    else:
+                        use_nbasis[ss] = nbasis
+                        break
+                        # use_nbasis[ss] = nbasis-1
+                        # nbasis -= 1 # Avoid overfitting... redo the fit one last time
+                        # breaktime = True
+                else:
+                    nbasis += 1
+            # plt.show()
+            # if ss == 1705:
+            #     embed()
+        # plt.plot(use_nbasis)
+        # plt.show()
+        return HIIflux, outfluxbox, outfluxbox_err, outfluxb, outfluxb_err
+
     def objprof2D(self, allspecimg, allimg, extfrm_use, gpm_img, maxspatl, maxspatr):
         tsty = np.array([3, 7, 21])
         ev_spec, ev_spat = allspecimg[evpix], allspatimg[evpix]
@@ -1246,7 +1359,7 @@ class ReduceBase:
         sigrej = 3
         nbasis = 7  # 25
         binsize = 0.1
-        nwindow = 9  # +/- 30 pixels is about the maximum window that can be used around the object trace when the nod is +/-6.5 arcseconds from the slit centre
+        nwindow = 20  # +/- 30 pixels is about the maximum window that can be used around the object trace when the nod is +/-6.5 arcseconds from the slit centre
         nspec, nspat = extfrm_use.shape
         # Set the window edges
         ledge, redge = edges
@@ -1380,7 +1493,7 @@ class ReduceBase:
         # Now perform the fit
         #slice = np.meshgrid(np.arange(1600, 1750), np.arange(extfrm_use.shape[1]), indexing='ij')
         trace_mask = np.abs(allspatimg) > 3.0
-        numiter = 5 if not self._use_diff else 1
+        numiter = 5# if not self._use_diff else 1
         mean_bg = False
         testing, subtesting = False, False  # Need to (1) True, True, then set the best test value; (2) False, True, then set the best sub test value; (3) False, False, once both test and subtests have been done
         if testing:
@@ -1563,8 +1676,11 @@ class ReduceBase:
             plt.plot(spec.BOX_WAVE.flatten(), spec_boxcar_sig, 'r-', drawstyle='steps-mid')
             plt.plot(spec.BOX_WAVE.flatten(), spec_boxcar_sky, 'b-', drawstyle='steps-mid')
             plt.show()
+        # Now fit background and object at the same time
+        HIIresid, outfluxbox, outfluxbox_err, outfluxopt, outfluxopt_err = self.iterate_objfit_chisq(extfrm_use, ivar_use, gpm_img_new, spec,
+                                                                                                     profile_img, nwindow_left, nwindow_right,
+                                                                                                     numpixfit=20)
         # embed()
-        # assert(False)
         # Save the extracted spectrum
         # skytxt = ""
         # if self._ext_sky: skytxt = "_sky"
@@ -1573,7 +1689,8 @@ class ReduceBase:
         outPath = self._procpath
         outA = outPath + "spec1d_{0:02d}.dat".format(idx)
         # np.savetxt(outA, np.column_stack((spec_boxcar_wav, spec_boxcar_flx, spec_boxcar_sig, spec_boxcar_sky)))
-        np.savetxt(outA, np.column_stack((spec_optimal_wav, spec_optimal_flx, spec_optimal_sig, spec_optimal_sky)))
+        # np.savetxt(outA, np.column_stack((spec_optimal_wav, spec_optimal_flx, spec_optimal_sig, spec_optimal_sky)))
+        np.savetxt(outA, np.column_stack((spec_optimal_wav, outfluxopt, outfluxopt_err, spec_optimal_sky)))
         if False:
             embed()
             # Now do the extraction

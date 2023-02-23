@@ -130,9 +130,10 @@ def wavecal_prelim(procpath, numspec, mn_fit, mx_fit, basis=True):
                 cold = 13.65
                 bval = 6.7
                 cont = [np.median(ffit), 0.0, 0.0]
-                # tet01 Ori A
-                #wpar = [1.3/35.0, 0.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and 0.0 means pixel 1657.5 = wavelength 10833.306444
-                wpar = [1.3 / 35.0, -150.0 / 35.0]  # PDS 241 --> -150 means "this absorption occurs 150 pixels to the right of tet01 Ori A"
+                # tet01 Ori A:
+                wpar = [1.3/35.0, 0.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and 0.0 means pixel 1657.5 = wavelength 10833.306444
+                # PDS 241:
+                #wpar = [1.3 / 35.0, -150.0 / 35.0]  # PDS 241 --> -150 means "this absorption occurs 150 pixels to the right of tet01 Ori A"
                 if False:
                     # Use this code to check wpar values
                     mfit = model(np.arange(2000), *params)
@@ -151,13 +152,14 @@ def wavecal_prelim(procpath, numspec, mn_fit, mx_fit, basis=True):
                 vltmp = 299792.458*(wvtmp-10833.306444) / wvtmp
                 cont = popt[1] + (popt[2] * (wvtmp - wave_he)) + (popt[3] * (wvtmp - wave_he) ** 2)
                 #np.savetxt("PDS241_tmp.dat", np.column_stack((vltmp, ffit/cont)))
-                plt.plot(vltmp, ffit/cont, 'k-', drawstyle='steps-mid')
-                plt.plot(vltmp, mfit/cont, 'r-')
+                plt.plot(vltmp, cont, 'c-')
+                plt.plot(vltmp, ffit, 'k-', drawstyle='steps-mid')
+                plt.plot(vltmp, mfit, 'r-')
                 plt.axvline(36.6, color='m')
                 plt.xlabel("Velocity relative to strongest He I* absorption")
-                plt.ylabel("Normed flux")
+                plt.ylabel("Flux")
                 plt.show()
-                embed()
+                # embed()
                 # Apply the wavelength solution and subtract the zero-level
                 if bo == 0:
                     box_wave = calculate_wavelength(box_wave, popt[4], popt[5])
@@ -167,10 +169,11 @@ def wavecal_prelim(procpath, numspec, mn_fit, mx_fit, basis=True):
                     #opt_cnts -= popt[0]
             # Output the files
             outfiln = filn.replace("spec1d", "spec1d_wave")
+            nrm_val = np.median(box_cnts[wfit])
             if basis:
-                np.savetxt(procpath + outfiln, np.transpose((box_wave, box_cnts, box_cerr, box_sky)))
+                np.savetxt(procpath + outfiln, np.transpose((box_wave, box_cnts/nrm_val, box_cerr/nrm_val, box_sky/nrm_val)))
             else:
-                np.savetxt(procpath+outfiln, np.transpose((box_wave, box_cnts, box_cerr, opt_wave, opt_cnts, opt_cerr)))
+                np.savetxt(procpath+outfiln, np.transpose((box_wave, box_cnts/nrm_val, box_cerr/nrm_val, opt_wave, opt_cnts/nrm_val, opt_cerr/nrm_val)))
 
 def wavecal_telluric(procpath, numspec):
     tmp_data_lines = np.array([10777.25, 10807.53, 10803.45, 10814.61, 10835.96, 10837.86])

@@ -1,9 +1,10 @@
 from reduce_base import ReduceBase
 import numpy as np
 
+
 def main():
     # Initialise the reduce class
-    step1 = True
+    step1 = False
     step2 = not step1
     thisred = Reduce(prefix="tet01OriA",
                      use_diff=True,
@@ -12,7 +13,7 @@ def main():
                      step_makedarkfit=False, step_makedarkframe=False,  # Make a dark image
                      step_makeflat=False,  # Make a flatfield image
                      step_makearc=False,  # Make an arc image
-                     step_makediff=True, step_subbg=False,  # Make difference and sum images
+                     step_makediff=False, step_subbg=False,  # Make difference and sum images
                      step_makecuts=False,  # Make difference and sum images
                      step_trace=False, step_extract=False, step_basis=step1,
                      ext_sky=False,  # Trace the spectrum and extract
@@ -25,6 +26,8 @@ def main():
                      # Wavelength calibrate all sky spectra and then combine
                      step_sample_NumExpCombine=False)  # Combine a different number of exposures to estimate how S/N depends on the number of exposures combined.
     thisred.makePaths(redux_path="/Users/rcooke/Work/Research/BBN/helium34/Absorption/2022_ESO_Survey/OrionNebula/CRIRES/")
+    thisred._plotit = True
+    thisred._comb_set = 1
     thisred.run()
 
 
@@ -43,10 +46,37 @@ class Reduce(ReduceBase):
                 ["CRIRE.2022-10-26T08:14:33.857.fits", "CRIRE.2022-10-26T08:01:34.447.fits"],  # B 4.0 A 3.5
                 ["CRIRE.2022-10-26T07:23:06.300.fits", "CRIRE.2022-10-26T07:32:50.776.fits"],  # B 1.5 A 6.0
                 ["CRIRE.2022-10-26T07:37:01.870.fits", "CRIRE.2022-10-26T07:19:05.099.fits"],  # B 6.0 A 1.5
-                ["CRIRE.2022-10-24T06:56:45.738.fits", "CRIRE.2022-10-26T08:19:06.223.fits"]]  # B 0.0 A 0.0  # WARNING!!! A=B=0 --> don't use diff!
-
+                # ["CRIRE.2022-10-24T06:56:45.738.fits", "CRIRE.2022-10-26T08:19:06.223.fits"]]  # B 0.0 A 0.0  # WARNING!!! A=B=0 --> don't use diff!
+                ["CRIRE.2022-10-24T06:56:45.738.fits", "CRIRE.2022-10-24T06:13:09.282.fits"], # A 0.0 B 6.5XXX  Don't use A!!
+                ["CRIRE.2022-10-26T08:19:06.223.fits", "CRIRE.2022-10-24T06:13:09.282.fits"]]  # A 0.0, B 6.5XXX  Don't use B!!
         # self._matches = [["CRIRE.2022-10-24T06:17:44.032.fits", "CRIRE.2022-10-24T06:39:29.485.fits"], # A 2.0 A 2.5
         #            ["CRIRE.2022-10-24T06:17:44.032.fits", "CRIRE.2022-10-26T07:41:37.963.fits"]] # A 2.0 A 3.0
+
+    def is_frame_in_set(self, frnum, comb_set):
+        if comb_set < 0:
+            return False
+        frame_in_set = False
+        if comb_set == 0:
+            if frnum in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24]:
+                frame_in_set = True
+        elif comb_set == 1:
+            if frnum in [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 26]:
+                frame_in_set = True
+        return frame_in_set
+
+    def is_frame_masked(self, frnum):
+        masked = False
+        if frnum in [25, 27]:
+            masked = True
+        return masked
+
+    def get_scale(self, idx):
+        scale = 1
+        if idx in [12, 13]:
+            exptime = self.get_exptime(idx)[1]
+            scale = self.get_exptime(0)[1] / exptime
+        print("Scale = ", scale)
+        return scale
 
     def get_flat_frames(self):
         return ["CRIRE.2022-10-24T12:16:57.426.fits",
@@ -102,7 +132,7 @@ class Reduce(ReduceBase):
 
     def get_exptime(self, idx):
         ndit = self.get_ndit(idx)
-        if idx == 12:
+        if idx in [12, 13]:
             etim = 7  # This is the DIT
         else:
             etim = 10  # This is the DIT
@@ -110,7 +140,7 @@ class Reduce(ReduceBase):
         return exptime, etim
 
     def get_ndit(self, idx):
-        if idx == 12:
+        if idx in [12, 13]:
             return 9  # This is the NDIT
         else:
             return 20  # This is the NDIT
