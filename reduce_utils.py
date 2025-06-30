@@ -50,13 +50,13 @@ def conv(x, y, cont0, vfwhm):
         dwav = 0.5*(x[2:]-x[:-2])/x[1:-1]
         dwav = np.append(np.append(dwav[0],dwav),dwav[-1])
         if np.size(sigd) == 1:
-            df= int(np.min([np.int(np.ceil(fsigd/dwav).max()), ysize//2 - 1]))
+            df= int(np.min([int(np.ceil(fsigd/dwav).max()), ysize//2 - 1]))
             yval = cont0*np.ones(2*df+1)
             yval[df:2*df+1] = (x[df:2*df+1]/x[df] - 1.0)/sigd
             yval[:df] = (x[:df]/x[df] - 1.0)/sigd
             gaus = np.exp(-0.5*yval*yval)
             size = ysize + gaus.size - 1
-            fsize = 2 ** np.int(np.ceil(np.log2(size))) # Use this size for a more efficient computation
+            fsize = 2 ** int(np.ceil(np.log2(size))) # Use this size for a more efficient computation
             conv = np.fft.fft(y, fsize)
             conv *= np.fft.fft(gaus/gaus.sum(), fsize)
             ret = np.fft.ifft(conv).real.copy()
@@ -64,7 +64,7 @@ def conv(x, y, cont0, vfwhm):
             return ret[df:df+ysize]
         elif np.size(sigd) == szflx:
             yb = y.copy()
-            df=np.min([np.int(np.ceil(fsigd/dwav).max()), ysize//2 - 1])
+            df=np.min([int(np.ceil(fsigd/dwav).max()), ysize//2 - 1])
             for i in range(szflx):
                 if sigd[i] == 0.0:
                     yb[i] = y[i]
@@ -74,7 +74,7 @@ def conv(x, y, cont0, vfwhm):
                 yval[:df] = (x[:df]/x[df] - 1.0)/sigd[i]
                 gaus = np.exp(-0.5*yval*yval)
                 size = ysize + gaus.size - 1
-                fsize = 2 ** np.int(np.ceil(np.log2(size))) # Use this size for a more efficient computation
+                fsize = 2 ** int(np.ceil(np.log2(size))) # Use this size for a more efficient computation
                 conv  = np.fft.fft(y, fsize)
                 conv *= np.fft.fft(gaus/gaus.sum(), fsize)
                 ret   = np.fft.ifft(conv).real.copy()
@@ -85,7 +85,32 @@ def conv(x, y, cont0, vfwhm):
             print("vfwhm and flux arrays have different sizes.")
     else: return y
 
-def model(pixels, zerolev, cont0, cont1, cont2, wscl, wcons, logn, bval):
+
+def model_twocomp(pixels, zerolev, cont0, cont1, cont2, wscl, wcons, logn, bval, pdiff, logn2, bval2):
+    # Calculate the wavelength solution
+    wave = calculate_wavelength(pixels, wscl, wcons)
+    wdiff = calculate_wavelength(pdiff, wscl, wcons)-10833.306444
+    # Calculate the continuum
+    cont = cont0 + (cont1 * (wave-wave_he)) + (cont2 * (wave-wave_he)**2)
+    # Calculate the absorption
+    absmodel = np.ones(pixels.size)
+    absmodel *= voigt(wave, logn, bval, 10832.057472, 5.9902e-02, 1.0216e+07)
+    absmodel *= voigt(wave, logn, bval, 10833.216751, 1.7974e-01, 1.0216e+07)
+    absmodel *= voigt(wave, logn, bval, 10833.306444, 2.9958e-01, 1.0216e+07)
+    # Component 2
+    absmodel *= voigt(wave-wdiff, logn2, bval2, 10832.057472, 5.9902e-02, 1.0216e+07)
+    absmodel *= voigt(wave-wdiff, logn2, bval2, 10833.216751, 1.7974e-01, 1.0216e+07)
+    absmodel *= voigt(wave-wdiff, logn2, bval2, 10833.306444, 2.9958e-01, 1.0216e+07)
+    # Combine the model
+    model = zerolev + cont*absmodel
+    # return model
+    # Convolve the model
+    modconv = conv(wave, model, cont0+zerolev, crires_vfwhm)
+    modconv[:5] = model[:5]
+    modconv[-5:] = model[-5:]
+    return modconv
+
+def model_onecomp(pixels, zerolev, cont0, cont1, cont2, wscl, wcons, logn, bval):
     # Calculate the wavelength solution
     wave = calculate_wavelength(pixels, wscl, wcons)
     # Calculate the continuum
@@ -107,20 +132,26 @@ def model(pixels, zerolev, cont0, cont1, cont2, wscl, wcons, logn, bval):
 
 def wavecal_prelim(procpath, numspec, mn_fit, mx_fit, basis=True):
     bvals = []
+    numcomp = 1
     for ff in range(numspec):
-        for nn, nod in enumerate(nods):
+        for nn in range(1):#, nod in enumerate(nods):
             if basis:
-                filn = "spec1d_{0:02d}.dat".format(2 * ff + nn)
-                box_wave, box_cnts, box_cerr, box_sky = np.loadtxt(procpath+filn, unpack=True)
+                # filn = "spec1d_{0:02d}.dat".format(2 * ff + nn)
+                # filn = "tet01OriA_mask_spec{0:02d}.dat".format(ff)
+                # filn = "tet02OriA_mask_spec{0:02d}.dat".format(ff)
+                # filn = "PDS241_spec{0:02d}.dat".format(ff)
+                # filn = "hd319718_spec{0:02d}.dat".format(ff)
+                filn = "her36_spec{0:02d}.dat".format(ff)
+                # box_wave, box_cnts, box_cerr, box_sky = np.loadtxt(procpath+filn, unpack=True)
+                box_wave, box_cnts, box_cerr = np.loadtxt(procpath+filn, unpack=True)
             else:
                 filn = "spec1d_{0:02d}_{1:s}.dat".format(ff, nod)
                 box_wave, box_cnts, box_cerr, box_wave, opt_cnts, opt_cerr = np.loadtxt(procpath + filn, unpack=True)
             for bo in range(2):
                 if bo==1 and basis: continue
-
                 # Grab the data
                 if bo==0:
-                    wfit = np.where((box_wave>mn_fit) & (box_wave<mx_fit))
+                    wfit = np.where((box_wave>mn_fit) & (box_wave<mx_fit) & (box_cerr>0.0))
                     pfit, ffit, efit = box_wave[wfit], box_cnts[wfit], box_cerr[wfit]
                 else:
                     wfit = np.where((opt_wave>mn_fit) & (opt_wave<mx_fit))
@@ -129,24 +160,50 @@ def wavecal_prelim(procpath, numspec, mn_fit, mx_fit, basis=True):
                 zerolev = 0.0
                 cold = 13.65
                 bval = 6.7
-                cont = [np.median(ffit), 0.0, 0.0]
+                # cont = [1.1*np.median(ffit), 0.0, 0.0]
+                cont = [0.95*np.max(ffit), 0.0, 0.0]
                 # tet01 Ori A:
-                wpar = [1.3/35.0, 0.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and 0.0 means pixel 1657.5 = wavelength 10833.306444
+                # wpar = [1.3/35.0, -10.0/35.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and 0.0 means pixel 1657.5 = wavelength 10833.306444
                 # PDS 241:
-                #wpar = [1.3 / 35.0, -150.0 / 35.0]  # PDS 241 --> -150 means "this absorption occurs 150 pixels to the right of tet01 Ori A"
+                # wpar = [1.3 / 35.0, -150.0 / 35.0]  # PDS 241 --> -150 means "this absorption occurs 150 pixels to the right of tet01 Ori A"
+                # HD 319718:
+                wpar = [1.3/35.0, (1657.0-(mn_fit+2*mx_fit)/3)/35.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and +3.0/35.0 means "this absorption occurs 3 pixels to the LEFT of tet01 Ori A"
+                # Her 36:
+                wpar = [1.3/35.0, (1657.0-(mn_fit+2*mx_fit)/3)/35.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and +3.0/35.0 means "this absorption occurs 3 pixels to the LEFT of tet01 Ori A"
+                if numcomp == 1:
+                    params = [zerolev, cont[0], cont[1], cont[2], wpar[0], wpar[1], cold, bval]
+                elif numcomp == 2:
+                    # HD 319718:
+                    pdiff2, cold2, bval2 = (mn_fit+2*mx_fit)/3-50.0, 12.0, 10.0  # second component is at pixel 1613, with column density 12.0 and b-value 7.0
+                    params = [zerolev, cont[0], cont[1], cont[2], wpar[0], wpar[1], cold, bval, pdiff2, cold2, bval2]
+                else:
+                    assert(False), "numcomp must be 1 or 2"
+                ### Check the initial model parameters here
+                # embed()
+                # assert False
                 if False:
                     # Use this code to check wpar values
-                    mfit = model(np.arange(2000), *params)
-                    plt.plot(np.arange(2000), mfit, 'b-')
-                    mfit = model(pfit, *params)
+                    if numcomp == 1:
+                        mfit = model_onecomp(pfit, *params)
+                    elif numcomp == 2:
+                        mfit = model_twocomp(pfit, *params)
+                    plt.plot(pfit, ffit, 'k-', drawstyle='steps-mid')
                     plt.plot(pfit, mfit, 'r-')
                     plt.show()
-                params = [zerolev, cont[0], cont[1], cont[2], wpar[0], wpar[1], cold, bval]
                 # Perform the fit
-                popt, pcov = curve_fit(model, pfit, ffit, p0=params, sigma=efit)
-                # Plot the final result
-                mfit = model(pfit, *popt)
+                if numcomp == 1:
+                    popt, pcov = curve_fit(model_onecomp, pfit, ffit, p0=params, sigma=efit)
+                    # Plot the final result
+                    mfit = model_onecomp(pfit, *popt)
+                elif numcomp == 2:
+                    try:
+                        popt, pcov = curve_fit(model_twocomp, pfit, ffit, p0=params, sigma=efit)
+                    except:
+                        embed()
+                    # Plot the final result
+                    mfit = model_twocomp(pfit, *popt)
                 bvals.append(popt[-1])
+                print(popt)
                 print(filn, bo)
                 wvtmp = calculate_wavelength(pfit, popt[4], popt[5])
                 vltmp = 299792.458*(wvtmp-10833.306444) / wvtmp
@@ -168,10 +225,11 @@ def wavecal_prelim(procpath, numspec, mn_fit, mx_fit, basis=True):
                     opt_wave = calculate_wavelength(opt_wave, popt[4], popt[5])
                     #opt_cnts -= popt[0]
             # Output the files
-            outfiln = filn.replace("spec1d", "spec1d_wave")
+            outfiln = filn.replace(".", "_wave.")
             nrm_val = np.median(box_cnts[wfit])
             if basis:
-                np.savetxt(procpath + outfiln, np.transpose((box_wave, box_cnts/nrm_val, box_cerr/nrm_val, box_sky/nrm_val)))
+                # np.savetxt(procpath + outfiln, np.transpose((box_wave, box_cnts/nrm_val, box_cerr/nrm_val, box_sky/nrm_val)))
+                np.savetxt(procpath + outfiln, np.transpose((box_wave, box_cnts / nrm_val, box_cerr / nrm_val)))
             else:
                 np.savetxt(procpath+outfiln, np.transpose((box_wave, box_cnts/nrm_val, box_cerr/nrm_val, opt_wave, opt_cnts/nrm_val, opt_cerr/nrm_val)))
 

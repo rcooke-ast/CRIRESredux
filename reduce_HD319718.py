@@ -5,9 +5,10 @@ def main():
     # Initialise the reduce class
     step1 = True
     step2 = not step1
-    thisred = Reduce(prefix="tet02OriA_mask", match_name="tet02 Ori A",
+    step1, step2 = False, False
+    thisred = Reduce(prefix="hd319718_mask", match_name="HD 319718", data_folder="Raw/",
                      use_diff=True,
-                     step_listfiles=False, step_make_combinations=False,
+                     step_listfiles=True, step_make_combinations=False,
                      step_pattern=False,  # Generate an image of the detector pattern
                      step_makedarkfit=False, step_makedarkframe=False,  # Make a dark image
                      step_makeflat=False,  # Make a flatfield image
@@ -24,7 +25,7 @@ def main():
                      step_wavecal_sky=False, step_comb_sky=False,
                      # Wavelength calibrate all sky spectra and then combine
                      step_sample_NumExpCombine=False)  # Combine a different number of exposures to estimate how S/N depends on the number of exposures combined.
-    thisred.makePaths(redux_path="/Users/rcooke/Work/Research/BBN/helium34/Absorption/2022_ESO_Survey/OrionNebula/CRIRES/")
+    thisred.makePaths(redux_path="/Users/rcooke/Work/Research/BBN/helium34/Absorption/2023_CRIRES_Survey/HD319718/")
     thisred._plotit = False
     thisred._comb_set = 0
     thisred.run()

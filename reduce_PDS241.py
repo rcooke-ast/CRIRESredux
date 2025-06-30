@@ -4,7 +4,7 @@ import numpy as np
 
 def main():
     # Initialise the reduce class
-    step1 = True
+    step1 = False
     step2 = not step1
     thisred = Reduce(prefix="PDS241",
                      use_diff=True,
@@ -15,7 +15,7 @@ def main():
                      step_makearc=False,  # Make an arc image
                      step_makediff=False, step_subbg=False,  # Make difference and sum images
                      step_makecuts=False,  # Make difference and sum images
-                     step_trace=False, step_extract=False, step_basis=False,#step1,
+                     step_trace=False, step_extract=False, step_basis=step1,
                      ext_sky=False,  # Trace the spectrum and extract
                      step_wavecal_prelim=step1,  # Calculate a preliminary wavelength calibration solution
                      step_prepALIS=step1,
@@ -26,18 +26,33 @@ def main():
                      # Wavelength calibrate all sky spectra and then combine
                      step_sample_NumExpCombine=False)  # Combine a different number of exposures to estimate how S/N depends on the number of exposures combined.
     thisred.makePaths(redux_path="/Users/rcooke/Work/Research/BBN/helium34/Absorption/2022_ESO_Survey/PDS241/CRIRES/")
+    thisred._comb_set = -1
+    thisred._maxnbasis = 5
     thisred.run()
 
 
 class Reduce(ReduceBase):
 
     def get_science_frames(self):
-        return [["CRIRE.2023-01-29T02:43:36.699.fits", "CRIRE.2023-01-29T02:47:48.547.fits"],  # A 1.0 B 1.0
-                ["CRIRE.2023-01-29T02:51:51.199.fits", "CRIRE.2023-01-29T02:56:04.258.fits"],  # B 1.0 A 1.0
-                ["CRIRE.2023-01-29T03:27:36.514.fits", "CRIRE.2023-01-29T03:00:42.213.fits"],  # B 6.5 A 6.5
-                ["CRIRE.2023-01-29T03:31:39.291.fits", "CRIRE.2023-01-29T03:35:56.830.fits"],  # B 6.5 A 6.5
-                ["CRIRE.2023-01-29T03:56:29.285.fits", "CRIRE.2023-01-29T03:40:28.416.fits"],  # B 4.5 A 3.0
-                ["CRIRE.2023-01-29T03:45:46.666.fits", "CRIRE.2023-01-29T03:51:11.745.fits"]]  # B 3.0 A 4.5
+        return [[["CRIRE.2023-01-29T02:43:36.699.fits"], ["CRIRE.2023-01-29T03:09:08.903.fits"]],
+                [["CRIRE.2023-01-29T02:47:48.547.fits"], ["CRIRE.2023-01-29T03:09:08.903.fits"]],  # A 1.0 B 1.0
+                [["CRIRE.2023-01-29T02:51:51.199.fits"], ["CRIRE.2023-01-29T03:09:08.903.fits"]],
+                [["CRIRE.2023-01-29T02:56:04.258.fits"], ["CRIRE.2023-01-29T03:09:08.903.fits"]],  # B 1.0 A 1.0
+                [["CRIRE.2023-01-29T03:27:36.514.fits"], ["CRIRE.2023-01-29T03:09:08.903.fits"]],
+                [["CRIRE.2023-01-29T03:00:42.213.fits"], ["CRIRE.2023-01-29T03:09:08.903.fits"]],  # B 6.5 A 6.5
+                [["CRIRE.2023-01-29T03:31:39.291.fits"], ["CRIRE.2023-01-29T03:09:08.903.fits"]],
+                [["CRIRE.2023-01-29T03:35:56.830.fits"], ["CRIRE.2023-01-29T03:09:08.903.fits"]],  # B 6.5 A 6.5
+                [["CRIRE.2023-01-29T03:56:29.285.fits"], ["CRIRE.2023-01-29T03:09:08.903.fits"]],
+                [["CRIRE.2023-01-29T03:40:28.416.fits"], ["CRIRE.2023-01-29T03:09:08.903.fits"]],  # B 4.5 A 3.0
+                [["CRIRE.2023-01-29T03:45:46.666.fits"], ["CRIRE.2023-01-29T03:09:08.903.fits"]],
+                [["CRIRE.2023-01-29T03:51:11.745.fits"], ["CRIRE.2023-01-29T03:09:08.903.fits"]]]#,
+                #[["CRIRE.2023-01-29T03:09:08.903.fits"], ["CRIRE.2023-01-29T03:09:08.903.fits"]]]  # B 3.0 A 4.5
+        # return [["CRIRE.2023-01-29T02:43:36.699.fits", "CRIRE.2023-01-29T02:47:48.547.fits"],  # A 1.0 B 1.0
+        #         ["CRIRE.2023-01-29T02:51:51.199.fits", "CRIRE.2023-01-29T02:56:04.258.fits"],  # B 1.0 A 1.0
+        #         ["CRIRE.2023-01-29T03:27:36.514.fits", "CRIRE.2023-01-29T03:00:42.213.fits"],  # B 6.5 A 6.5
+        #         ["CRIRE.2023-01-29T03:31:39.291.fits", "CRIRE.2023-01-29T03:35:56.830.fits"],  # B 6.5 A 6.5
+        #         ["CRIRE.2023-01-29T03:56:29.285.fits", "CRIRE.2023-01-29T03:40:28.416.fits"],  # B 4.5 A 3.0
+        #         ["CRIRE.2023-01-29T03:45:46.666.fits", "CRIRE.2023-01-29T03:51:11.745.fits"]]  # B 3.0 A 4.5
         """
         CRIRE.2023-01-29T03:05:05.963.fits   B 6.5   LOW COUNTS
         CRIRE.2023-01-29T03:23:17.219.fits   A 6.5   LOW COUNTS
@@ -68,7 +83,7 @@ class Reduce(ReduceBase):
 
     def get_exptime(self, idx):
         ndit = self.get_ndit(idx)
-        if idx in [4, 5]:
+        if idx in [8, 9, 10, 11]:
             etim = 300  # This is the DIT
         else:
             etim = 240  # This is the DIT
@@ -82,6 +97,12 @@ class Reduce(ReduceBase):
         """
         Set the spectral regions to calculate the object profile. If full=True, then a more extended region is used.
         These values are relevant for PDS 241, during the 2023 Jan observations
+
+        To determine these values, open up the two frames with the biggest difference in nod (e.g. +/- 6.5") in ds9,
+        and hover the cursor over the middle of the strongest He I* absorption line. The inner left limit is the pixel
+        number at the middle fo the profile minus 90 pixels, and the right limit is the pixel number at the middle of
+        the profile plus 45 pixels. The outer limits need to be large enough to be able to model the full object
+        profile in 2D.
         """
         if full:
             # All of the object profile

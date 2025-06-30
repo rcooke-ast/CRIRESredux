@@ -6,16 +6,16 @@ def main():
     # Initialise the reduce class
     step1 = False
     step2 = not step1
-    thisred = Reduce(prefix="tet01OriA",
+    thisred = Reduce(prefix="tet01OriA_mask", match_name="tet01 Ori A",
                      use_diff=True,
-                     step_listfiles=False,
+                     step_listfiles=False, step_make_combinations=False,
                      step_pattern=False,  # Generate an image of the detector pattern
                      step_makedarkfit=False, step_makedarkframe=False,  # Make a dark image
                      step_makeflat=False,  # Make a flatfield image
                      step_makearc=False,  # Make an arc image
                      step_makediff=False, step_subbg=False,  # Make difference and sum images
                      step_makecuts=False,  # Make difference and sum images
-                     step_trace=False, step_extract=False, step_basis=step1,
+                     step_trace=False, step_extract=False, step_basis=False,#step1,
                      ext_sky=False,  # Trace the spectrum and extract
                      step_wavecal_prelim=step1,  # Calculate a preliminary wavelength calibration solution
                      step_prepALIS=step1,
@@ -26,41 +26,362 @@ def main():
                      # Wavelength calibrate all sky spectra and then combine
                      step_sample_NumExpCombine=False)  # Combine a different number of exposures to estimate how S/N depends on the number of exposures combined.
     thisred.makePaths(redux_path="/Users/rcooke/Work/Research/BBN/helium34/Absorption/2022_ESO_Survey/OrionNebula/CRIRES/")
-    thisred._plotit = True
-    thisred._comb_set = 1
+    thisred._plotit = False
+    thisred._comb_set = 0
+    thisred._maxnbasis = 15
     thisred.run()
 
 
 class Reduce(ReduceBase):
 
     def get_science_frames(self):
-        return [["CRIRE.2022-10-24T06:00:36.335.fits", "CRIRE.2022-10-24T06:13:09.282.fits"],  # A 1.0 B 6.5
-                ["CRIRE.2022-10-24T06:04:35.716.fits", "CRIRE.2022-10-24T06:09:01.470.fits"],  # B 1 A 6.5
-                ["CRIRE.2022-10-24T06:30:39.815.fits", "CRIRE.2022-10-24T06:17:44.032.fits"],  # B 5.5 A 2.0
-                ["CRIRE.2022-10-24T06:22:02.926.fits", "CRIRE.2022-10-24T06:26:34.004.fits"],  # B 2.0 A 5.5
-                ["CRIRE.2022-10-24T06:52:30.465.fits", "CRIRE.2022-10-24T06:39:29.485.fits"],  # B 5.0 A 2.5
-                ["CRIRE.2022-10-24T06:43:55.087.fits", "CRIRE.2022-10-24T06:48:26.383.fits"],  # B 2.5 A 5.0
-                ["CRIRE.2022-10-26T07:56:25.958.fits", "CRIRE.2022-10-26T07:41:37.963.fits"],  # B 4.5 A 3
-                ["CRIRE.2022-10-26T07:45:45.398.fits", "CRIRE.2022-10-26T07:52:14.741.fits"],  # B 3 A 4.5
-                ["CRIRE.2022-10-26T08:05:42.277.fits", "CRIRE.2022-10-26T08:10:26.674.fits"],  # B 3.5 A 4.0
-                ["CRIRE.2022-10-26T08:14:33.857.fits", "CRIRE.2022-10-26T08:01:34.447.fits"],  # B 4.0 A 3.5
-                ["CRIRE.2022-10-26T07:23:06.300.fits", "CRIRE.2022-10-26T07:32:50.776.fits"],  # B 1.5 A 6.0
-                ["CRIRE.2022-10-26T07:37:01.870.fits", "CRIRE.2022-10-26T07:19:05.099.fits"],  # B 6.0 A 1.5
-                # ["CRIRE.2022-10-24T06:56:45.738.fits", "CRIRE.2022-10-26T08:19:06.223.fits"]]  # B 0.0 A 0.0  # WARNING!!! A=B=0 --> don't use diff!
-                ["CRIRE.2022-10-24T06:56:45.738.fits", "CRIRE.2022-10-24T06:13:09.282.fits"], # A 0.0 B 6.5XXX  Don't use A!!
-                ["CRIRE.2022-10-26T08:19:06.223.fits", "CRIRE.2022-10-24T06:13:09.282.fits"]]  # A 0.0, B 6.5XXX  Don't use B!!
-        # self._matches = [["CRIRE.2022-10-24T06:17:44.032.fits", "CRIRE.2022-10-24T06:39:29.485.fits"], # A 2.0 A 2.5
-        #            ["CRIRE.2022-10-24T06:17:44.032.fits", "CRIRE.2022-10-26T07:41:37.963.fits"]] # A 2.0 A 3.0
+        """
+        This was auto-generated with step_make_combinations()
+        """
+#                A=1.0
+        return  [[["CRIRE.2022-10-24T06:00:36.335.fits"], ["CRIRE.2022-10-24T06:13:09.282.fits",    # B=6.5
+                                                           "CRIRE.2022-10-26T07:37:01.870.fits",    # B=6.0
+                                                           "CRIRE.2022-10-24T06:30:39.815.fits",    # B=5.5
+                                                           "CRIRE.2022-10-24T06:52:30.465.fits",    # B=5.0
+                                                           "CRIRE.2022-10-26T07:56:25.958.fits",    # B=4.5
+                                                           "CRIRE.2022-10-26T08:14:33.857.fits",    # B=4.0
+                                                           "CRIRE.2022-10-26T08:05:42.277.fits",    # B=3.5
+                                                           "CRIRE.2022-10-26T07:45:45.398.fits",    # B=3.0
+                                                           "CRIRE.2022-10-24T06:48:26.383.fits",    # A=5.0
+                                                           "CRIRE.2022-10-24T06:26:34.004.fits",    # A=5.5
+                                                           "CRIRE.2022-10-26T07:32:50.776.fits",    # A=6.0
+                                                           "CRIRE.2022-10-24T06:09:01.470.fits"]],  # A=6.5
+#                B=1.0
+                 [["CRIRE.2022-10-24T06:04:35.716.fits"], ["CRIRE.2022-10-24T06:13:09.282.fits",    # B=6.5
+                                                           "CRIRE.2022-10-26T07:37:01.870.fits",    # B=6.0
+                                                           "CRIRE.2022-10-24T06:30:39.815.fits",    # B=5.5
+                                                           "CRIRE.2022-10-24T06:52:30.465.fits",    # B=5.0
+                                                           "CRIRE.2022-10-26T07:41:37.963.fits",    # A=3.0
+                                                           "CRIRE.2022-10-26T08:01:34.447.fits",    # A=3.5
+                                                           "CRIRE.2022-10-26T08:10:26.674.fits",    # A=4.0
+                                                           "CRIRE.2022-10-26T07:52:14.741.fits",    # A=4.5
+                                                           "CRIRE.2022-10-24T06:48:26.383.fits",    # A=5.0
+                                                           "CRIRE.2022-10-24T06:26:34.004.fits",    # A=5.5
+                                                           "CRIRE.2022-10-26T07:32:50.776.fits",    # A=6.0
+                                                           "CRIRE.2022-10-24T06:09:01.470.fits"]],  # A=6.5
+#                A=6.5
+                 [["CRIRE.2022-10-24T06:09:01.470.fits"], ["CRIRE.2022-10-24T06:13:09.282.fits",    # B=6.5
+                                                           "CRIRE.2022-10-26T07:37:01.870.fits",    # B=6.0
+                                                           "CRIRE.2022-10-24T06:30:39.815.fits",    # B=5.5
+                                                           "CRIRE.2022-10-24T06:52:30.465.fits",    # B=5.0
+                                                           "CRIRE.2022-10-26T07:56:25.958.fits",    # B=4.5
+                                                           "CRIRE.2022-10-26T08:14:33.857.fits",    # B=4.0
+                                                           "CRIRE.2022-10-26T08:05:42.277.fits",    # B=3.5
+                                                           "CRIRE.2022-10-26T07:45:45.398.fits",    # B=3.0
+                                                           "CRIRE.2022-10-24T06:43:55.087.fits",    # B=2.5
+                                                           "CRIRE.2022-10-24T06:22:02.926.fits",    # B=2.0
+                                                           "CRIRE.2022-10-26T07:23:06.300.fits",    # B=1.5
+                                                           "CRIRE.2022-10-24T06:04:35.716.fits",    # B=1.0
+                                                           "CRIRE.2022-10-24T06:00:36.335.fits",    # A=1.0
+                                                           "CRIRE.2022-10-26T07:19:05.099.fits",    # A=1.5
+                                                           "CRIRE.2022-10-24T06:17:44.032.fits",    # A=2.0
+                                                           "CRIRE.2022-10-24T06:39:29.485.fits"]],  # A=2.5
+#                B=6.5
+                 [["CRIRE.2022-10-24T06:13:09.282.fits"], ["CRIRE.2022-10-24T06:43:55.087.fits",    # B=2.5
+                                                           "CRIRE.2022-10-24T06:22:02.926.fits",    # B=2.0
+                                                           "CRIRE.2022-10-26T07:23:06.300.fits",    # B=1.5
+                                                           "CRIRE.2022-10-24T06:04:35.716.fits",    # B=1.0
+                                                           "CRIRE.2022-10-24T06:00:36.335.fits",    # A=1.0
+                                                           "CRIRE.2022-10-26T07:19:05.099.fits",    # A=1.5
+                                                           "CRIRE.2022-10-24T06:17:44.032.fits",    # A=2.0
+                                                           "CRIRE.2022-10-24T06:39:29.485.fits",    # A=2.5
+                                                           "CRIRE.2022-10-26T07:41:37.963.fits",    # A=3.0
+                                                           "CRIRE.2022-10-26T08:01:34.447.fits",    # A=3.5
+                                                           "CRIRE.2022-10-26T08:10:26.674.fits",    # A=4.0
+                                                           "CRIRE.2022-10-26T07:52:14.741.fits",    # A=4.5
+                                                           "CRIRE.2022-10-24T06:48:26.383.fits",    # A=5.0
+                                                           "CRIRE.2022-10-24T06:26:34.004.fits",    # A=5.5
+                                                           "CRIRE.2022-10-26T07:32:50.776.fits",    # A=6.0
+                                                           "CRIRE.2022-10-24T06:09:01.470.fits"]],  # A=6.5
+#                A=2.0
+                 [["CRIRE.2022-10-24T06:17:44.032.fits"], ["CRIRE.2022-10-24T06:13:09.282.fits",    # B=6.5
+                                                           "CRIRE.2022-10-26T07:37:01.870.fits",    # B=6.0
+                                                           "CRIRE.2022-10-24T06:30:39.815.fits",    # B=5.5
+                                                           "CRIRE.2022-10-24T06:52:30.465.fits",    # B=5.0
+                                                           "CRIRE.2022-10-26T07:56:25.958.fits",    # B=4.5
+                                                           "CRIRE.2022-10-26T08:14:33.857.fits",    # B=4.0
+                                                           "CRIRE.2022-10-26T08:05:42.277.fits",    # B=3.5
+                                                           "CRIRE.2022-10-26T07:45:45.398.fits",    # B=3.0
+                                                           "CRIRE.2022-10-24T06:43:55.087.fits",    # B=2.5
+                                                           "CRIRE.2022-10-24T06:22:02.926.fits",    # B=2.0
+                                                           "CRIRE.2022-10-26T07:32:50.776.fits",    # A=6.0
+                                                           "CRIRE.2022-10-24T06:09:01.470.fits"]],  # A=6.5
+#                B=2.0
+                 [["CRIRE.2022-10-24T06:22:02.926.fits"], ["CRIRE.2022-10-24T06:13:09.282.fits",    # B=6.5
+                                                           "CRIRE.2022-10-26T07:37:01.870.fits",    # B=6.0
+                                                           "CRIRE.2022-10-24T06:17:44.032.fits",    # A=2.0
+                                                           "CRIRE.2022-10-24T06:39:29.485.fits",    # A=2.5
+                                                           "CRIRE.2022-10-26T07:41:37.963.fits",    # A=3.0
+                                                           "CRIRE.2022-10-26T08:01:34.447.fits",    # A=3.5
+                                                           "CRIRE.2022-10-26T08:10:26.674.fits",    # A=4.0
+                                                           "CRIRE.2022-10-26T07:52:14.741.fits",    # A=4.5
+                                                           "CRIRE.2022-10-24T06:48:26.383.fits",    # A=5.0
+                                                           "CRIRE.2022-10-24T06:26:34.004.fits",    # A=5.5
+                                                           "CRIRE.2022-10-26T07:32:50.776.fits",    # A=6.0
+                                                           "CRIRE.2022-10-24T06:09:01.470.fits"]],  # A=6.5
+#                A=5.5
+                 [["CRIRE.2022-10-24T06:26:34.004.fits"], ["CRIRE.2022-10-24T06:13:09.282.fits",    # B=6.5
+                                                           "CRIRE.2022-10-26T07:37:01.870.fits",    # B=6.0
+                                                           "CRIRE.2022-10-24T06:30:39.815.fits",    # B=5.5
+                                                           "CRIRE.2022-10-24T06:52:30.465.fits",    # B=5.0
+                                                           "CRIRE.2022-10-26T07:56:25.958.fits",    # B=4.5
+                                                           "CRIRE.2022-10-26T08:14:33.857.fits",    # B=4.0
+                                                           "CRIRE.2022-10-26T08:05:42.277.fits",    # B=3.5
+                                                           "CRIRE.2022-10-26T07:45:45.398.fits",    # B=3.0
+                                                           "CRIRE.2022-10-24T06:43:55.087.fits",    # B=2.5
+                                                           "CRIRE.2022-10-24T06:22:02.926.fits",    # B=2.0
+                                                           "CRIRE.2022-10-26T07:23:06.300.fits",    # B=1.5
+                                                           "CRIRE.2022-10-24T06:04:35.716.fits",    # B=1.0
+                                                           "CRIRE.2022-10-24T06:00:36.335.fits",    # A=1.0
+                                                           "CRIRE.2022-10-26T07:19:05.099.fits"]],  # A=1.5
+#                B=5.5
+                 [["CRIRE.2022-10-24T06:30:39.815.fits"], ["CRIRE.2022-10-26T07:23:06.300.fits",    # B=1.5
+                                                           "CRIRE.2022-10-24T06:04:35.716.fits",    # B=1.0
+                                                           "CRIRE.2022-10-24T06:00:36.335.fits",    # A=1.0
+                                                           "CRIRE.2022-10-26T07:19:05.099.fits",    # A=1.5
+                                                           "CRIRE.2022-10-24T06:17:44.032.fits",    # A=2.0
+                                                           "CRIRE.2022-10-24T06:39:29.485.fits",    # A=2.5
+                                                           "CRIRE.2022-10-26T07:41:37.963.fits",    # A=3.0
+                                                           "CRIRE.2022-10-26T08:01:34.447.fits",    # A=3.5
+                                                           "CRIRE.2022-10-26T08:10:26.674.fits",    # A=4.0
+                                                           "CRIRE.2022-10-26T07:52:14.741.fits",    # A=4.5
+                                                           "CRIRE.2022-10-24T06:48:26.383.fits",    # A=5.0
+                                                           "CRIRE.2022-10-24T06:26:34.004.fits",    # A=5.5
+                                                           "CRIRE.2022-10-26T07:32:50.776.fits",    # A=6.0
+                                                           "CRIRE.2022-10-24T06:09:01.470.fits"]],  # A=6.5
+#                A=2.5
+                 [["CRIRE.2022-10-24T06:39:29.485.fits"], ["CRIRE.2022-10-24T06:13:09.282.fits",    # B=6.5
+                                                           "CRIRE.2022-10-26T07:37:01.870.fits",    # B=6.0
+                                                           "CRIRE.2022-10-24T06:30:39.815.fits",    # B=5.5
+                                                           "CRIRE.2022-10-24T06:52:30.465.fits",    # B=5.0
+                                                           "CRIRE.2022-10-26T07:56:25.958.fits",    # B=4.5
+                                                           "CRIRE.2022-10-26T08:14:33.857.fits",    # B=4.0
+                                                           "CRIRE.2022-10-26T08:05:42.277.fits",    # B=3.5
+                                                           "CRIRE.2022-10-26T07:45:45.398.fits",    # B=3.0
+                                                           "CRIRE.2022-10-24T06:43:55.087.fits",    # B=2.5
+                                                           "CRIRE.2022-10-24T06:22:02.926.fits",    # B=2.0
+                                                           "CRIRE.2022-10-26T07:23:06.300.fits",    # B=1.5
+                                                           "CRIRE.2022-10-24T06:09:01.470.fits"]],  # A=6.5
+#                B=2.5
+                 [["CRIRE.2022-10-24T06:43:55.087.fits"], ["CRIRE.2022-10-24T06:13:09.282.fits",    # B=6.5
+                                                           "CRIRE.2022-10-26T07:19:05.099.fits",    # A=1.5
+                                                           "CRIRE.2022-10-24T06:17:44.032.fits",    # A=2.0
+                                                           "CRIRE.2022-10-24T06:39:29.485.fits",    # A=2.5
+                                                           "CRIRE.2022-10-26T07:41:37.963.fits",    # A=3.0
+                                                           "CRIRE.2022-10-26T08:01:34.447.fits",    # A=3.5
+                                                           "CRIRE.2022-10-26T08:10:26.674.fits",    # A=4.0
+                                                           "CRIRE.2022-10-26T07:52:14.741.fits",    # A=4.5
+                                                           "CRIRE.2022-10-24T06:48:26.383.fits",    # A=5.0
+                                                           "CRIRE.2022-10-24T06:26:34.004.fits",    # A=5.5
+                                                           "CRIRE.2022-10-26T07:32:50.776.fits",    # A=6.0
+                                                           "CRIRE.2022-10-24T06:09:01.470.fits"]],  # A=6.5
+#                A=5.0
+                 [["CRIRE.2022-10-24T06:48:26.383.fits"], ["CRIRE.2022-10-24T06:13:09.282.fits",    # B=6.5
+                                                           "CRIRE.2022-10-26T07:37:01.870.fits",    # B=6.0
+                                                           "CRIRE.2022-10-24T06:30:39.815.fits",    # B=5.5
+                                                           "CRIRE.2022-10-24T06:52:30.465.fits",    # B=5.0
+                                                           "CRIRE.2022-10-26T07:56:25.958.fits",    # B=4.5
+                                                           "CRIRE.2022-10-26T08:14:33.857.fits",    # B=4.0
+                                                           "CRIRE.2022-10-26T08:05:42.277.fits",    # B=3.5
+                                                           "CRIRE.2022-10-26T07:45:45.398.fits",    # B=3.0
+                                                           "CRIRE.2022-10-24T06:43:55.087.fits",    # B=2.5
+                                                           "CRIRE.2022-10-24T06:22:02.926.fits",    # B=2.0
+                                                           "CRIRE.2022-10-26T07:23:06.300.fits",    # B=1.5
+                                                           "CRIRE.2022-10-24T06:04:35.716.fits",    # B=1.0
+                                                           "CRIRE.2022-10-24T06:00:36.335.fits"]],  # A=1.0
+#                B=5.0
+                 [["CRIRE.2022-10-24T06:52:30.465.fits"], ["CRIRE.2022-10-24T06:04:35.716.fits",    # B=1.0
+                                                           "CRIRE.2022-10-24T06:00:36.335.fits",    # A=1.0
+                                                           "CRIRE.2022-10-26T07:19:05.099.fits",    # A=1.5
+                                                           "CRIRE.2022-10-24T06:17:44.032.fits",    # A=2.0
+                                                           "CRIRE.2022-10-24T06:39:29.485.fits",    # A=2.5
+                                                           "CRIRE.2022-10-26T07:41:37.963.fits",    # A=3.0
+                                                           "CRIRE.2022-10-26T08:01:34.447.fits",    # A=3.5
+                                                           "CRIRE.2022-10-26T08:10:26.674.fits",    # A=4.0
+                                                           "CRIRE.2022-10-26T07:52:14.741.fits",    # A=4.5
+                                                           "CRIRE.2022-10-24T06:48:26.383.fits",    # A=5.0
+                                                           "CRIRE.2022-10-24T06:26:34.004.fits",    # A=5.5
+                                                           "CRIRE.2022-10-26T07:32:50.776.fits",    # A=6.0
+                                                           "CRIRE.2022-10-24T06:09:01.470.fits"]],  # A=6.5
+#                A=1.5
+                 [["CRIRE.2022-10-26T07:19:05.099.fits"], ["CRIRE.2022-10-24T06:13:09.282.fits",    # B=6.5
+                                                           "CRIRE.2022-10-26T07:37:01.870.fits",    # B=6.0
+                                                           "CRIRE.2022-10-24T06:30:39.815.fits",    # B=5.5
+                                                           "CRIRE.2022-10-24T06:52:30.465.fits",    # B=5.0
+                                                           "CRIRE.2022-10-26T07:56:25.958.fits",    # B=4.5
+                                                           "CRIRE.2022-10-26T08:14:33.857.fits",    # B=4.0
+                                                           "CRIRE.2022-10-26T08:05:42.277.fits",    # B=3.5
+                                                           "CRIRE.2022-10-26T07:45:45.398.fits",    # B=3.0
+                                                           "CRIRE.2022-10-24T06:43:55.087.fits",    # B=2.5
+                                                           "CRIRE.2022-10-24T06:26:34.004.fits",    # A=5.5
+                                                           "CRIRE.2022-10-26T07:32:50.776.fits",    # A=6.0
+                                                           "CRIRE.2022-10-24T06:09:01.470.fits"]],  # A=6.5
+#                B=1.5
+                 [["CRIRE.2022-10-26T07:23:06.300.fits"], ["CRIRE.2022-10-24T06:13:09.282.fits",    # B=6.5
+                                                           "CRIRE.2022-10-26T07:37:01.870.fits",    # B=6.0
+                                                           "CRIRE.2022-10-24T06:30:39.815.fits",    # B=5.5
+                                                           "CRIRE.2022-10-24T06:39:29.485.fits",    # A=2.5
+                                                           "CRIRE.2022-10-26T07:41:37.963.fits",    # A=3.0
+                                                           "CRIRE.2022-10-26T08:01:34.447.fits",    # A=3.5
+                                                           "CRIRE.2022-10-26T08:10:26.674.fits",    # A=4.0
+                                                           "CRIRE.2022-10-26T07:52:14.741.fits",    # A=4.5
+                                                           "CRIRE.2022-10-24T06:48:26.383.fits",    # A=5.0
+                                                           "CRIRE.2022-10-24T06:26:34.004.fits",    # A=5.5
+                                                           "CRIRE.2022-10-26T07:32:50.776.fits",    # A=6.0
+                                                           "CRIRE.2022-10-24T06:09:01.470.fits"]],  # A=6.5
+#                A=6.0
+                 [["CRIRE.2022-10-26T07:32:50.776.fits"], ["CRIRE.2022-10-24T06:13:09.282.fits",    # B=6.5
+                                                           "CRIRE.2022-10-26T07:37:01.870.fits",    # B=6.0
+                                                           "CRIRE.2022-10-24T06:30:39.815.fits",    # B=5.5
+                                                           "CRIRE.2022-10-24T06:52:30.465.fits",    # B=5.0
+                                                           "CRIRE.2022-10-26T07:56:25.958.fits",    # B=4.5
+                                                           "CRIRE.2022-10-26T08:14:33.857.fits",    # B=4.0
+                                                           "CRIRE.2022-10-26T08:05:42.277.fits",    # B=3.5
+                                                           "CRIRE.2022-10-26T07:45:45.398.fits",    # B=3.0
+                                                           "CRIRE.2022-10-24T06:43:55.087.fits",    # B=2.5
+                                                           "CRIRE.2022-10-24T06:22:02.926.fits",    # B=2.0
+                                                           "CRIRE.2022-10-26T07:23:06.300.fits",    # B=1.5
+                                                           "CRIRE.2022-10-24T06:04:35.716.fits",    # B=1.0
+                                                           "CRIRE.2022-10-24T06:00:36.335.fits",    # A=1.0
+                                                           "CRIRE.2022-10-26T07:19:05.099.fits",    # A=1.5
+                                                           "CRIRE.2022-10-24T06:17:44.032.fits"]],  # A=2.0
+#                B=6.0
+                 [["CRIRE.2022-10-26T07:37:01.870.fits"], ["CRIRE.2022-10-24T06:22:02.926.fits",    # B=2.0
+                                                           "CRIRE.2022-10-26T07:23:06.300.fits",    # B=1.5
+                                                           "CRIRE.2022-10-24T06:04:35.716.fits",    # B=1.0
+                                                           "CRIRE.2022-10-24T06:00:36.335.fits",    # A=1.0
+                                                           "CRIRE.2022-10-26T07:19:05.099.fits",    # A=1.5
+                                                           "CRIRE.2022-10-24T06:17:44.032.fits",    # A=2.0
+                                                           "CRIRE.2022-10-24T06:39:29.485.fits",    # A=2.5
+                                                           "CRIRE.2022-10-26T07:41:37.963.fits",    # A=3.0
+                                                           "CRIRE.2022-10-26T08:01:34.447.fits",    # A=3.5
+                                                           "CRIRE.2022-10-26T08:10:26.674.fits",    # A=4.0
+                                                           "CRIRE.2022-10-26T07:52:14.741.fits",    # A=4.5
+                                                           "CRIRE.2022-10-24T06:48:26.383.fits",    # A=5.0
+                                                           "CRIRE.2022-10-24T06:26:34.004.fits",    # A=5.5
+                                                           "CRIRE.2022-10-26T07:32:50.776.fits",    # A=6.0
+                                                           "CRIRE.2022-10-24T06:09:01.470.fits"]],  # A=6.5
+#                A=3.0
+                 [["CRIRE.2022-10-26T07:41:37.963.fits"], ["CRIRE.2022-10-24T06:13:09.282.fits",    # B=6.5
+                                                           "CRIRE.2022-10-26T07:37:01.870.fits",    # B=6.0
+                                                           "CRIRE.2022-10-24T06:30:39.815.fits",    # B=5.5
+                                                           "CRIRE.2022-10-24T06:52:30.465.fits",    # B=5.0
+                                                           "CRIRE.2022-10-26T07:56:25.958.fits",    # B=4.5
+                                                           "CRIRE.2022-10-26T08:14:33.857.fits",    # B=4.0
+                                                           "CRIRE.2022-10-26T08:05:42.277.fits",    # B=3.5
+                                                           "CRIRE.2022-10-26T07:45:45.398.fits",    # B=3.0
+                                                           "CRIRE.2022-10-24T06:43:55.087.fits",    # B=2.5
+                                                           "CRIRE.2022-10-24T06:22:02.926.fits",    # B=2.0
+                                                           "CRIRE.2022-10-26T07:23:06.300.fits",    # B=1.5
+                                                           "CRIRE.2022-10-24T06:04:35.716.fits"]],  # B=1.0
+#                B=3.0
+                 [["CRIRE.2022-10-26T07:45:45.398.fits"], ["CRIRE.2022-10-24T06:00:36.335.fits",    # A=1.0
+                                                           "CRIRE.2022-10-26T07:19:05.099.fits",    # A=1.5
+                                                           "CRIRE.2022-10-24T06:17:44.032.fits",    # A=2.0
+                                                           "CRIRE.2022-10-24T06:39:29.485.fits",    # A=2.5
+                                                           "CRIRE.2022-10-26T07:41:37.963.fits",    # A=3.0
+                                                           "CRIRE.2022-10-26T08:01:34.447.fits",    # A=3.5
+                                                           "CRIRE.2022-10-26T08:10:26.674.fits",    # A=4.0
+                                                           "CRIRE.2022-10-26T07:52:14.741.fits",    # A=4.5
+                                                           "CRIRE.2022-10-24T06:48:26.383.fits",    # A=5.0
+                                                           "CRIRE.2022-10-24T06:26:34.004.fits",    # A=5.5
+                                                           "CRIRE.2022-10-26T07:32:50.776.fits",    # A=6.0
+                                                           "CRIRE.2022-10-24T06:09:01.470.fits"]],  # A=6.5
+#                A=4.5
+                 [["CRIRE.2022-10-26T07:52:14.741.fits"], ["CRIRE.2022-10-24T06:13:09.282.fits",    # B=6.5
+                                                           "CRIRE.2022-10-26T07:37:01.870.fits",    # B=6.0
+                                                           "CRIRE.2022-10-24T06:30:39.815.fits",    # B=5.5
+                                                           "CRIRE.2022-10-24T06:52:30.465.fits",    # B=5.0
+                                                           "CRIRE.2022-10-26T07:56:25.958.fits",    # B=4.5
+                                                           "CRIRE.2022-10-26T08:14:33.857.fits",    # B=4.0
+                                                           "CRIRE.2022-10-26T08:05:42.277.fits",    # B=3.5
+                                                           "CRIRE.2022-10-26T07:45:45.398.fits",    # B=3.0
+                                                           "CRIRE.2022-10-24T06:43:55.087.fits",    # B=2.5
+                                                           "CRIRE.2022-10-24T06:22:02.926.fits",    # B=2.0
+                                                           "CRIRE.2022-10-26T07:23:06.300.fits",    # B=1.5
+                                                           "CRIRE.2022-10-24T06:04:35.716.fits"]],  # B=1.0
+#                B=4.5
+                 [["CRIRE.2022-10-26T07:56:25.958.fits"], ["CRIRE.2022-10-24T06:00:36.335.fits",    # A=1.0
+                                                           "CRIRE.2022-10-26T07:19:05.099.fits",    # A=1.5
+                                                           "CRIRE.2022-10-24T06:17:44.032.fits",    # A=2.0
+                                                           "CRIRE.2022-10-24T06:39:29.485.fits",    # A=2.5
+                                                           "CRIRE.2022-10-26T07:41:37.963.fits",    # A=3.0
+                                                           "CRIRE.2022-10-26T08:01:34.447.fits",    # A=3.5
+                                                           "CRIRE.2022-10-26T08:10:26.674.fits",    # A=4.0
+                                                           "CRIRE.2022-10-26T07:52:14.741.fits",    # A=4.5
+                                                           "CRIRE.2022-10-24T06:48:26.383.fits",    # A=5.0
+                                                           "CRIRE.2022-10-24T06:26:34.004.fits",    # A=5.5
+                                                           "CRIRE.2022-10-26T07:32:50.776.fits",    # A=6.0
+                                                           "CRIRE.2022-10-24T06:09:01.470.fits"]],  # A=6.5
+#                A=3.5
+                 [["CRIRE.2022-10-26T08:01:34.447.fits"], ["CRIRE.2022-10-24T06:13:09.282.fits",    # B=6.5
+                                                           "CRIRE.2022-10-26T07:37:01.870.fits",    # B=6.0
+                                                           "CRIRE.2022-10-24T06:30:39.815.fits",    # B=5.5
+                                                           "CRIRE.2022-10-24T06:52:30.465.fits",    # B=5.0
+                                                           "CRIRE.2022-10-26T07:56:25.958.fits",    # B=4.5
+                                                           "CRIRE.2022-10-26T08:14:33.857.fits",    # B=4.0
+                                                           "CRIRE.2022-10-26T08:05:42.277.fits",    # B=3.5
+                                                           "CRIRE.2022-10-26T07:45:45.398.fits",    # B=3.0
+                                                           "CRIRE.2022-10-24T06:43:55.087.fits",    # B=2.5
+                                                           "CRIRE.2022-10-24T06:22:02.926.fits",    # B=2.0
+                                                           "CRIRE.2022-10-26T07:23:06.300.fits",    # B=1.5
+                                                           "CRIRE.2022-10-24T06:04:35.716.fits"]],  # B=1.0
+#                B=3.5
+                 [["CRIRE.2022-10-26T08:05:42.277.fits"], ["CRIRE.2022-10-24T06:00:36.335.fits",    # A=1.0
+                                                           "CRIRE.2022-10-26T07:19:05.099.fits",    # A=1.5
+                                                           "CRIRE.2022-10-24T06:17:44.032.fits",    # A=2.0
+                                                           "CRIRE.2022-10-24T06:39:29.485.fits",    # A=2.5
+                                                           "CRIRE.2022-10-26T07:41:37.963.fits",    # A=3.0
+                                                           "CRIRE.2022-10-26T08:01:34.447.fits",    # A=3.5
+                                                           "CRIRE.2022-10-26T08:10:26.674.fits",    # A=4.0
+                                                           "CRIRE.2022-10-26T07:52:14.741.fits",    # A=4.5
+                                                           "CRIRE.2022-10-24T06:48:26.383.fits",    # A=5.0
+                                                           "CRIRE.2022-10-24T06:26:34.004.fits",    # A=5.5
+                                                           "CRIRE.2022-10-26T07:32:50.776.fits",    # A=6.0
+                                                           "CRIRE.2022-10-24T06:09:01.470.fits"]],  # A=6.5
+#                A=4.0
+                 [["CRIRE.2022-10-26T08:10:26.674.fits"], ["CRIRE.2022-10-24T06:13:09.282.fits",    # B=6.5
+                                                           "CRIRE.2022-10-26T07:37:01.870.fits",    # B=6.0
+                                                           "CRIRE.2022-10-24T06:30:39.815.fits",    # B=5.5
+                                                           "CRIRE.2022-10-24T06:52:30.465.fits",    # B=5.0
+                                                           "CRIRE.2022-10-26T07:56:25.958.fits",    # B=4.5
+                                                           "CRIRE.2022-10-26T08:14:33.857.fits",    # B=4.0
+                                                           "CRIRE.2022-10-26T08:05:42.277.fits",    # B=3.5
+                                                           "CRIRE.2022-10-26T07:45:45.398.fits",    # B=3.0
+                                                           "CRIRE.2022-10-24T06:43:55.087.fits",    # B=2.5
+                                                           "CRIRE.2022-10-24T06:22:02.926.fits",    # B=2.0
+                                                           "CRIRE.2022-10-26T07:23:06.300.fits",    # B=1.5
+                                                           "CRIRE.2022-10-24T06:04:35.716.fits"]],  # B=1.0
+#                B=4.0
+                 [["CRIRE.2022-10-26T08:14:33.857.fits"], ["CRIRE.2022-10-24T06:00:36.335.fits",    # A=1.0
+                                                           "CRIRE.2022-10-26T07:19:05.099.fits",    # A=1.5
+                                                           "CRIRE.2022-10-24T06:17:44.032.fits",    # A=2.0
+                                                           "CRIRE.2022-10-24T06:39:29.485.fits",    # A=2.5
+                                                           "CRIRE.2022-10-26T07:41:37.963.fits",    # A=3.0
+                                                           "CRIRE.2022-10-26T08:01:34.447.fits",    # A=3.5
+                                                           "CRIRE.2022-10-26T08:10:26.674.fits",    # A=4.0
+                                                           "CRIRE.2022-10-26T07:52:14.741.fits",    # A=4.5
+                                                           "CRIRE.2022-10-24T06:48:26.383.fits",    # A=5.0
+                                                           "CRIRE.2022-10-24T06:26:34.004.fits",    # A=5.5
+                                                           "CRIRE.2022-10-26T07:32:50.776.fits",    # A=6.0
+                                                           "CRIRE.2022-10-24T06:09:01.470.fits"]]]  # A=6.5
+                # ["CRIRE.2022-10-24T06:56:45.738.fits", "CRIRE.2022-10-24T06:13:09.282.fits"], # A 0.0 B 6.5XXX  Don't use A!!
+                # ["CRIRE.2022-10-26T08:19:06.223.fits", "CRIRE.2022-10-24T06:13:09.282.fits"]]  # A 0.0, B 6.5XXX  Don't use B!!
 
     def is_frame_in_set(self, frnum, comb_set):
         if comb_set < 0:
-            return False
+            return True
         frame_in_set = False
         if comb_set == 0:
-            if frnum in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 24]:
+            if frnum in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]:
                 frame_in_set = True
         elif comb_set == 1:
-            if frnum in [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 26]:
+            if frnum in [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]:
                 frame_in_set = True
         return frame_in_set
 
@@ -72,7 +393,7 @@ class Reduce(ReduceBase):
 
     def get_scale(self, idx):
         scale = 1
-        if idx in [12, 13]:
+        if idx in []:
             exptime = self.get_exptime(idx)[1]
             scale = self.get_exptime(0)[1] / exptime
         print("Scale = ", scale)
@@ -132,7 +453,7 @@ class Reduce(ReduceBase):
 
     def get_exptime(self, idx):
         ndit = self.get_ndit(idx)
-        if idx in [12, 13]:
+        if idx in []:
             etim = 7  # This is the DIT
         else:
             etim = 10  # This is the DIT
@@ -140,7 +461,7 @@ class Reduce(ReduceBase):
         return exptime, etim
 
     def get_ndit(self, idx):
-        if idx in [12, 13]:
+        if idx in []:
             return 9  # This is the NDIT
         else:
             return 20  # This is the NDIT
@@ -149,6 +470,12 @@ class Reduce(ReduceBase):
         """
         Set the spectral regions to calculate the object profile. If full=True, then a more extended region is used.
         These values are relevant for tet01 Ori A, during the 2022 observations
+
+        To determine these values, open up the two frames with the biggest difference in nod (e.g. +/- 6.5") in ds9,
+        and hover the cursor over the middle of the strongest He I* absorption line. The inner left limit is the pixel
+        number at the middle fo the profile minus 90 pixels, and the right limit is the pixel number at the middle of
+        the profile plus 45 pixels. The outer limits need to be large enough to be able to model the full object
+        profile in 2D.
         """
         if full:
             # All of the object profile
