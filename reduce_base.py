@@ -100,7 +100,7 @@ class ReduceBase:
         self._step_skycoeffs = step_skycoeffs
         self._mean_skycoeff = mean_skycoeff
         self._step_basis = step_basis
-        self._step_subbg = step_subbg
+        self._step_subbg = True#step_subbg
         self._ext_sky = ext_sky
         self._step_wavecal_prelim = step_wavecal_prelim
         self._step_prepALIS = step_prepALIS
@@ -274,6 +274,16 @@ class ReduceBase:
                     minwv = np.min(opt_wave)
                 if np.max(opt_wave) > maxwv:
                     maxwv = np.max(opt_wave)
+            if True:
+                for ff in range(self._numframes):
+                    extraPath = "/Users/rcooke/Work/Research/BBN/helium34/Absorption/2023_CRIRES_Survey/Her36/2024-09-29/redux_her36/processed/her36"
+                    outname = extraPath + "_ALIS_spec{0:02d}_wzcorr.dat".format(ff)
+                    opt_wave, opt_cnts, opt_cerr = np.loadtxt(outname, usecols=(0, 2, 3), unpack=True)
+                    raw_specs.append(XSpectrum1D.from_tuple((opt_wave, opt_cnts, opt_cerr), verbose=False))
+                    if np.min(opt_wave) < minwv:
+                        minwv = np.min(opt_wave)
+                    if np.max(opt_wave) > maxwv:
+                        maxwv = np.max(opt_wave)
         else:
             # usePath = self._altpath
             # if self._use_diff: usePath = self._procpath
@@ -396,7 +406,7 @@ class ReduceBase:
         # Calculate the excess variance
         spec, specerr = final_spec.data, final_spec_err.data
         specerr_new = self.scale_variance(out_wave, spec, specerr)
-        if self._plotit:
+        if self._plotit or True:
             for sp in range(nspec):
                 plt.plot(out_wave, out_flux[:, sp], 'k-', drawstyle='steps-mid')
                 ww = new_mask[:, sp]
@@ -883,7 +893,7 @@ class ReduceBase:
             #     print("Switch", fil_a[0].header['HIERARCH ESO SEQ NODPOS'].strip(), mm)
             #     img_b = fil_a[self._chip].data
             #     img_a = fil_b[self._chip].data
-            if self._step_subbg:
+            if self._step_subbg:# and False:
                 bgem1 = self._bgem_name.format(2 * mm)
                 bgem2 = self._bgem_name.format(2 * mm + 1)
                 img_a -= fits.open(bgem1)[0].data / self._gain
@@ -1234,14 +1244,17 @@ class ReduceBase:
             ty = np.linspace(-maxspatl, maxspatr, tsty[tt])
             ty = np.append(np.ones(3) * ty[0], np.append(ty, ty[-1] * np.ones(3)))
             # Make tx
-            nxest = int(3+np.sqrt(np.sum(fitpix)/2)) - 6
-            mdreg = np.arange(1613.0, 1730.0 - 0.9, 2.5)
-            # wtmp = (mdreg > 1695) & (mdreg < 1705)
-            # mdreg = np.sort(np.append(mdreg, 0.5*(mdreg[wtmp][1:]+mdreg[wtmp][:-1])))
-            loreg = np.linspace(np.min(allspecimg[fitpix]), 1612.0, (nxest - mdreg.size) // 2)
-            hireg = np.linspace(1730.0, np.max(allspecimg[fitpix]), (nxest - mdreg.size) // 2)
-            tx = np.append(loreg, mdreg)
-            tx = np.append(tx, hireg)
+            nxest = int(3 + np.sqrt(np.sum(fitpix) / 2)) - 6
+            if True:
+                mdreg = np.arange(1613.0, 1730.0 - 0.9, 2.5)
+                # wtmp = (mdreg > 1695) & (mdreg < 1705)
+                # mdreg = np.sort(np.append(mdreg, 0.5*(mdreg[wtmp][1:]+mdreg[wtmp][:-1])))
+                loreg = np.linspace(np.min(allspecimg[fitpix]), 1612.0, (nxest - mdreg.size) // 2)
+                hireg = np.linspace(1730.0, np.max(allspecimg[fitpix]), (nxest - mdreg.size) // 2)
+                tx = np.append(loreg, mdreg)
+                tx = np.append(tx, hireg)
+            else:
+                tx = np.linspace(np.min(allspecimg[fitpix]), np.max(allspecimg[fitpix]), nxest//2)
             # Pad the ticks with repeated starting points
             tx = np.append(np.ones(3) * tx[0], np.append(tx, tx[-1] * np.ones(3)))
             try:
@@ -1475,7 +1488,7 @@ class ReduceBase:
                 embed()
                 assert (False)
 
-    def basis_fit(self, extfrm_use, ivar_use, tilts, waveimg, spatimg, spec, idx, extfrm_use_nrm, ivar_use_nrm, edges=None, fullprof=False, plot_resid=False):
+    def basis_fit(self, extfrm_use, ivar_use, tilts, waveimg, spatimg, spec, idx, extfrm_use_nrm, ivar_use_nrm, full_bg, edges=None, fullprof=False, plot_resid=False):
         # print("BIG ERROR!!! DELETE THIS RETURN STATEMENT")
         # print("BIG ERROR!!! DELETE THIS RETURN STATEMENT")
         # print("BIG ERROR!!! DELETE THIS RETURN STATEMENT")
@@ -1492,9 +1505,9 @@ class ReduceBase:
         onslit[:, :32] = False
         onslit[:, 268:] = False
         sigrej = 3
-        nbasis = 5  # 25
+        nbasis = 15  # 25
         binsize = 0.1
-        nwindow = 15  # +/- 30 pixels is about the maximum window that can be used around the object trace when the nod is +/-6.5 arcseconds from the slit centre
+        nwindow = 25  # +/- 30 pixels is about the maximum window that can be used around the object trace when the nod is +/-6.5 arcseconds from the slit centre
         nspec, nspat = extfrm_use.shape
         # Set the window edges
         ledge, redge = edges
@@ -1628,7 +1641,7 @@ class ReduceBase:
         # Now perform the fit
         #slice = np.meshgrid(np.arange(1600, 1750), np.arange(extfrm_use.shape[1]), indexing='ij')
         trace_mask = np.abs(allspatimg) > 3.0
-        numiter = 5# if not self._use_diff else 1
+        numiter = 1# if not self._use_diff else 1
         mean_bg = False
         testing, subtesting = False, False  # Need to (1) True, True, then set the best test value; (2) False, True, then set the best sub test value; (3) False, False, once both test and subtests have been done
         if testing:
@@ -1645,9 +1658,9 @@ class ReduceBase:
             #gpm_img_tmp = gpm_img.copy()
             for ii in range(numiter):
                 if ii == 0: this_nbasis = nbasis
-                elif ii <= 2: this_nbasis = 3
-                else: this_nbasis = 2
-                if self._use_diff:
+                elif ii <= 2: this_nbasis = nbasis//2
+                else: this_nbasis = this_nbasis = nbasis//3
+                if self._use_diff and False:
                     # Obtain an estimate of the background level
                     bgspec = np.median(extfrm_use, axis=1)
                     # Apply a median filter to the background spectrum
@@ -1660,6 +1673,16 @@ class ReduceBase:
                                                                                gpm_img_new, spec, opimg, nwindow_left,
                                                                                nwindow_right, this_nbasis,
                                                                                numpixfit=tst[tt])
+                    HIIresid = ndimage.median_filter(HIIresid, size=(5,5), mode='nearest')
+                    HIIresid = ndimage.gaussian_filter(HIIresid, sigma=3.0, mode='nearest', axes=0)
+                    if False:
+                        plt.subplot(131)
+                        plt.imshow(HIIresid, origin='lower', aspect='auto', vmin=-200, vmax=200, interpolation='nearest')
+                        plt.subplot(132)
+                        plt.imshow(HIIresidb, origin='lower', aspect='auto', vmin=-200, vmax=200, interpolation='nearest')
+                        plt.subplot(133)
+                        plt.imshow(HIIresidc, origin='lower', aspect='auto', vmin=-200, vmax=200, interpolation='nearest')
+                        plt.show()
                     # Redo trace to be constant emission velocity
                     objfrm = None if self._use_diff else HIIresid + bgfitted
                     allspecimg = self.trace_tilt(spec.TRACE_SPAT.flatten(), trcnum=min(nwindow_left, nwindow_right), plotit=False, objfrm=objfrm)
@@ -1672,6 +1695,8 @@ class ReduceBase:
                         bgfitted, gpm_img_new = self.mean_bg(HIIresid + bgfitted, gpm_img_new, thisboxpix, allspecimg, allspatimg, nwindow_left, nwindow_right, idx)
                     else:
                         bgfitted, gpm_img_new = self.iterate_bgfit(HIIresid+bgfitted, gpm_img_new, allspecimg, allspatimg, nwindow_left, nwindow_right, idx, trace_mask, plotit=False)#(ii==numiter-1))
+                        # Convolve the bgfitted image with a Gaussian kernal along the spectral axis
+                        bgfitted = ndimage.gaussian_filter(bgfitted, sigma=5.0, mode='nearest', axes=0)
                     # Should we save the background emission (only do this if the background emission has not been subtracted)?
                     if not self._step_subbg:
                         self.save_bgemission(bgfitted, idx)
@@ -1820,20 +1845,28 @@ class ReduceBase:
         HIIresid, outfluxbox, outfluxbox_err, outfluxopt, outfluxopt_err = self.iterate_objfit_chisq(extfrm_use, ivar_use, gpm_img_new, spec,
                                                                                                      profile_img, nwindow_left, nwindow_right)
         # Plot the residual images
-        if plot_resid:
+        if plot_resid or True:
             wnz = np.where(profile_img != 0.0)
             outspecimg = np.interp(allspecimg, np.arange(spec_optimal_flx.size), spec_optimal_flx)
             model = profile_img*outspecimg#spec_optimal_flx.reshape((spec_optimal_flx.size, 1))
             modmax = np.max(model)
             wslice = np.index_exp[wnz[0].min():wnz[0].max(), wnz[1].min():wnz[1].max()]
-            plt.subplot(141)
+            plt.subplot(161)
             plt.imshow(extfrm_use[wslice], origin='lower', cmap='gray', aspect=0.3, vmin=0, vmax=modmax)
-            plt.subplot(142)
+            plt.subplot(162)
             plt.imshow(profile_img[wslice], origin='lower', cmap='gray', aspect=0.3, vmin=0, vmax=np.max(profile_img))
-            plt.subplot(143)
+            plt.subplot(163)
             plt.imshow(model[wslice], origin='lower', cmap='gray', aspect=0.3, vmin=0, vmax=modmax)
-            plt.subplot(144)
+            plt.subplot(164)
+            plt.imshow(full_bg[wslice], origin='lower', cmap='gray', aspect=0.3, vmin=-3*np.median(full_bg[wslice]), vmax=3*np.median(full_bg[wslice]))
+            plt.subplot(165)
+            madbg = 1.4826*np.median(np.abs(np.median(bgfitted[wslice])-bgfitted[wslice]))
+            plt.imshow(bgfitted[wslice], origin='lower', cmap='gray', aspect=0.3, vmin=-3*madbg, vmax=3*madbg)
+            plt.subplot(166)
             plt.imshow((extfrm_use[wslice] - bgfitted[wslice] - model[wslice])*np.sqrt(ivar_use[wslice]), origin='lower', cmap='gray', aspect=0.3, vmin=-3, vmax=3)
+            plt.show()
+            plt.clf()
+            plt.plot(np.arange(spec_optimal_flx.size), spec_optimal_flx, drawstyle='steps-mid')
             plt.show()
 
         # plt.plot(spec_boxcar_flx, 'k-', drawstyle='steps-mid')
@@ -2016,7 +2049,7 @@ class ReduceBase:
                         show_fits=self._plotit, nperslit=1, std_trace=trc_pos_tmp[0].TRACE_SPAT)
                 else:
                     trc_pos = trc_pos_tmp
-                if self._plotit:
+                if self._plotit:# or True:
                     spec = np.arange(frame.shape[self._specaxis])
                     plt.imshow(frame.T, vmin=-200, vmax=200, origin='lower')
                     plt.plot(spec, trc_pos[0].TRACE_SPAT + boxcar_rad, 'b-')
@@ -2026,10 +2059,10 @@ class ReduceBase:
                     plt.plot(spec, trc_pos[0].TRACE_SPAT - 40, 'g-')
                     plt.plot(spec, trc_pos[0].TRACE_SPAT - 100, 'g-')
 
-                    plt.plot(spec, trc_posb[0].TRACE_SPAT + boxcar_rad, 'b--')
-                    plt.plot(spec, trc_posb[0].TRACE_SPAT - boxcar_rad, 'r--')
-                    plt.plot(spec, trc_posb[0].TRACE_SPAT - 40, 'g--')
-                    plt.plot(spec, trc_posb[0].TRACE_SPAT - 100, 'g--')
+                    # plt.plot(spec, trc_posb[0].TRACE_SPAT + boxcar_rad, 'b--')
+                    # plt.plot(spec, trc_posb[0].TRACE_SPAT - boxcar_rad, 'r--')
+                    # plt.plot(spec, trc_posb[0].TRACE_SPAT - 40, 'g--')
+                    # plt.plot(spec, trc_posb[0].TRACE_SPAT - 100, 'g--')
 
                     plt.show()
 
@@ -2064,11 +2097,11 @@ class ReduceBase:
                             bgfilt = signal.medfilt(bgspec, 25)
                             bgfitted = np.tile(bgfilt, (extfrm_use.shape[1], 1)).T
                             for it in range(numiterfit):
-                                objspec, bgfitted_new, xspec1d = self.basis_fit(extfrm_use-bgfitted, ivar_use, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt, extfrm_use_nrm, ivar_use_nrm, edges=[ledge, redge], fullprof=it!=0, plot_resid=(it==numiterfit-1))
-                                extfrm_use_nrm, ivar_use_nrm = extfrm_use.copy()-bgfitted-bgfitted_new, ivar_use.copy()
+                                objspec, bgfitted_new, xspec1d = self.basis_fit(extfrm_use-bgfitted, ivar_use, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt, extfrm_use_nrm, ivar_use_nrm, bgfitted, edges=[ledge, redge], fullprof=it!=0, plot_resid=(it==numiterfit-1))
+                                extfrm_use_nrm, ivar_use_nrm = extfrm_use.copy()-bgfitted-0.1*bgfitted_new, ivar_use.copy()
                                 extfrm_use_nrm *= utils.inverse(objspec[:, None])
                                 ivar_use_nrm *= objspec[:, None]**2
-                                bgfitted = bgfitted_new
+                                bgfitted += 0.1*bgfitted_new
                             raw_specs.append(xspec1d)
                             continue
                         else:

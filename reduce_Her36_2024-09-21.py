@@ -18,7 +18,7 @@ def main():
                      step_makecuts=False,  # Make difference and sum images
                      step_trace=False, step_extract=False, step_basis=False,#step1,
                      ext_sky=False,  # Trace the spectrum and extract
-                     step_wavecal_prelim=False,  # Calculate a preliminary wavelength calibration solution
+                     step_wavecal_prelim=step1,  # Calculate a preliminary wavelength calibration solution
                      step_prepALIS=step1,
                      # Once the data are reduced, prepare a series of files to be used to fit the wavelength solution with ALIS
                      step_combspec=False, step_combspec_rebin=step2,

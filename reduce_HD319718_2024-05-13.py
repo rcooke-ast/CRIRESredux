@@ -6,7 +6,7 @@ def main():
     # Initialise the reduce class
     step1 = False
     step2 = not step1
-    # step1, step2 = False, False
+    step1, step2 = False, False
     thisred = Reduce(prefix="hd319718", match_name="HD 319718", data_folder="Raw/",
                      use_diff=True,
                      step_listfiles=False, step_make_combinations=False,
@@ -16,7 +16,7 @@ def main():
                      step_makearc=False,  # Make an arc image
                      step_makediff=False,  # Make difference and sum images
                      step_makecuts=False,  # Make difference and sum images
-                     step_trace=False, step_extract=False, step_basis=False,#step1,
+                     step_trace=False, step_extract=False, step_basis=True,#step1,
                      ext_sky=False,  # Trace the spectrum and extract
                      step_wavecal_prelim=False,  # Calculate a preliminary wavelength calibration solution
                      step_prepALIS=step1,
