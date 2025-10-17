@@ -130,9 +130,8 @@ def model_onecomp(pixels, zerolev, cont0, cont1, cont2, wscl, wcons, logn, bval)
     return modconv
 
 
-def wavecal_prelim(procpath, numspec, mn_fit, mx_fit, basis=True):
+def wavecal_prelim(procpath, file_prefix, numspec, mn_fit, mx_fit, basis=True, numcomp=2, scale_errors=False):
     bvals = []
-    numcomp = 1
     for ff in range(numspec):
         for nn in range(1):#, nod in enumerate(nods):
             if basis:
@@ -141,7 +140,8 @@ def wavecal_prelim(procpath, numspec, mn_fit, mx_fit, basis=True):
                 # filn = "tet02OriA_mask_spec{0:02d}.dat".format(ff)
                 # filn = "PDS241_spec{0:02d}.dat".format(ff)
                 # filn = "hd319718_spec{0:02d}.dat".format(ff)
-                filn = "her36_spec{0:02d}.dat".format(ff)
+                # filn = "her36_spec{0:02d}.dat".format(ff)
+                filn = file_prefix + "_spec{0:02d}.dat".format(ff)
                 # box_wave, box_cnts, box_cerr, box_sky = np.loadtxt(procpath+filn, unpack=True)
                 box_wave, box_cnts, box_cerr = np.loadtxt(procpath+filn, unpack=True)
             else:
@@ -169,7 +169,7 @@ def wavecal_prelim(procpath, numspec, mn_fit, mx_fit, basis=True):
                 # HD 319718:
                 wpar = [1.3/35.0, (1657.0-(mn_fit+2*mx_fit)/3)/35.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and +3.0/35.0 means "this absorption occurs 3 pixels to the LEFT of tet01 Ori A"
                 # Her 36:
-                wpar = [1.3/35.0, (1657.0-(mn_fit+2*mx_fit)/3)/35.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and +3.0/35.0 means "this absorption occurs 3 pixels to the LEFT of tet01 Ori A"
+                # wpar = [1.3/35.0, (1657.0-(mn_fit+2*mx_fit)/3)/35.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and +3.0/35.0 means "this absorption occurs 3 pixels to the LEFT of tet01 Ori A"
                 if numcomp == 1:
                     params = [zerolev, cont[0], cont[1], cont[2], wpar[0], wpar[1], cold, bval]
                 elif numcomp == 2:
@@ -216,6 +216,7 @@ def wavecal_prelim(procpath, numspec, mn_fit, mx_fit, basis=True):
                 plt.xlabel("Velocity relative to strongest He I* absorption")
                 plt.ylabel("Flux")
                 plt.show()
+                plt.clf()
                 # embed()
                 # Apply the wavelength solution and subtract the zero-level
                 if bo == 0:
@@ -227,11 +228,21 @@ def wavecal_prelim(procpath, numspec, mn_fit, mx_fit, basis=True):
             # Output the files
             outfiln = filn.replace(".", "_wave.")
             nrm_val = np.median(box_cnts[wfit])
+            if scale_errors:
+                print("SCALING ERRORS!!!")
+                maskscale = np.zeros_like(box_cnts, dtype=int)
+                ww = np.where(box_cnts/np.median(cont) < 0.7)
+                box_cerr[ww] *= 10.0
+                maskscale[ww] = 1
             if basis:
                 # np.savetxt(procpath + outfiln, np.transpose((box_wave, box_cnts/nrm_val, box_cerr/nrm_val, box_sky/nrm_val)))
                 np.savetxt(procpath + outfiln, np.transpose((box_wave, box_cnts / nrm_val, box_cerr / nrm_val)))
+                if scale_errors:
+                    np.savetxt(procpath + outfiln + ".scale", np.transpose((box_wave, maskscale)))
             else:
                 np.savetxt(procpath+outfiln, np.transpose((box_wave, box_cnts/nrm_val, box_cerr/nrm_val, opt_wave, opt_cnts/nrm_val, opt_cerr/nrm_val)))
+                if scale_errors:
+                    np.savetxt(procpath + outfiln + ".scale", np.transpose((box_wave, maskscale)))
 
 def wavecal_telluric(procpath, numspec):
     tmp_data_lines = np.array([10777.25, 10807.53, 10803.45, 10814.61, 10835.96, 10837.86])
@@ -304,5 +315,3 @@ def wavecal_telluric(procpath, numspec):
             outfiln = filn.replace("spec1d_wave", "spec1d_waveTell")
             print("Saving {0:s}".format(outfiln))
             np.savetxt(procpath+outfiln, np.transpose((new_box_wave, box_cnts, box_cerr, new_opt_wave, opt_cnts, opt_cerr)))
-
-# plt.show()

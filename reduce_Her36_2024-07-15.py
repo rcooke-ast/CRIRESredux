@@ -16,7 +16,7 @@ def main():
                      step_makearc=False,  # Make an arc image
                      step_makediff=False,  # Make difference and sum images
                      step_makecuts=False,  # Make difference and sum images
-                     step_trace=False, step_extract=False, step_basis=False,#step1,
+                     step_trace=False, step_extract=False, step_basis=True,#step1,
                      ext_sky=False,  # Trace the spectrum and extract
                      step_wavecal_prelim=False,  # Calculate a preliminary wavelength calibration solution
                      step_prepALIS=step1,
@@ -33,6 +33,11 @@ def main():
 
 
 class Reduce(ReduceBase):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Change some of the default parameters
+        self._nbasis = 4
+
 
     def get_science_frames(self):
         """

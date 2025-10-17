@@ -830,7 +830,7 @@ class ReduceBaseNirspec(ReduceBase):
             print(f"Iteration {ii} :: Number of new bad pixels = {nnew}... total number of masked pixels = {nmask}")
         return gpm_img
 
-    def object_profile(self, allflux, allivar, allspecimg, allspatimg, gpm_img, maxspatl, maxspatr, full=False):
+    def object_profile(self, allflux_nrm, allivar_nrm, allspecimg, allspatimg, gpm_img, maxspatl, maxspatr, full=False):
         evpix = (allspecimg > 1400.0) & (allspecimg < 1950) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
         # Perform the b-spline fit
         """
@@ -873,7 +873,7 @@ class ReduceBaseNirspec(ReduceBase):
         tsty = np.array([2, 2])
         ev_spec, ev_spat = allspecimg[evpix], allspatimg[evpix]
         idxs = np.where(evpix)
-        gpm_img_new = gpm_img.copy() & (allivar!=0)
+        gpm_img_new = gpm_img.copy() & (allivar_nrm != 0)
         for tt in range(tsty.size):
             # This seems to work OK for tet02OriA_2021
             if full:
@@ -903,16 +903,16 @@ class ReduceBaseNirspec(ReduceBase):
             # Pad the ticks with repeated starting points
             tx = np.append(np.ones(3) * tx[0], np.append(tx, tx[-1] * np.ones(3)))
             try:
-                tck = interpolate.bisplrep(allspatimg[fitpix], allspecimg[fitpix], allflux[fitpix], w=allivar[fitpix], task=-1, tx=tx, ty=ty)
+                tck = interpolate.bisplrep(allspatimg[fitpix], allspecimg[fitpix], allflux_nrm[fitpix], w=allivar_nrm[fitpix], task=-1, tx=tx, ty=ty)
             except:
                 print("bisplrep failure")
                 embed()
                 assert False
-            outImage = np.zeros_like(allflux)
+            outImage = np.zeros_like(allflux_nrm)
             for ii in range(ev_spec.size):
                 outImage[idxs[0][ii], idxs[1][ii]] = interpolate.bisplev(ev_spat[ii], ev_spec[ii], tck)
             # Reject deviant pixels
-            tst = (allflux - outImage) * np.sqrt(allivar)
+            tst = (allflux_nrm - outImage) * np.sqrt(allivar_nrm)
             bpix = np.where(gpm_img_new & (np.abs(tst > 10)))
             gpm_img_new[bpix] = False
             print("New bad pixels in object profile :: ", bpix[0].size)
@@ -920,13 +920,13 @@ class ReduceBaseNirspec(ReduceBase):
         norm = utils.inverse(np.sum(outImage, axis=1)[:, None])
         outImage *= np.median(norm[norm != 0.0])
         idxf = np.where(fitpix)
-        idxt = fitpix & (np.abs((allflux - (outImage * utils.inverse(norm))) * np.sqrt(allivar)) > 2.5)
+        idxt = fitpix & (np.abs((allflux_nrm - (outImage * utils.inverse(norm))) * np.sqrt(allivar_nrm)) > 2.5)
         if True:
             plt.subplot(211)
-            plt.scatter(allspatimg[idxf], (allflux[idxf] - (outImage * utils.inverse(norm))[idxf]) * np.sqrt(allivar[idxf]), c=allspecimg[idxf], s=0.1)
+            plt.scatter(allspatimg[idxf], (allflux_nrm[idxf] - (outImage * utils.inverse(norm))[idxf]) * np.sqrt(allivar_nrm[idxf]), c=allspecimg[idxf], s=0.1)
             plt.ylim(-15, 15)
             plt.subplot(212)
-            plt.scatter(allspatimg[idxs], (allflux[idxs] - (outImage * utils.inverse(norm))[idxs]) * np.sqrt(allivar[idxs]), c=allspecimg[idxs], s=0.1)
+            plt.scatter(allspatimg[idxs], (allflux_nrm[idxs] - (outImage * utils.inverse(norm))[idxs]) * np.sqrt(allivar_nrm[idxs]), c=allspecimg[idxs], s=0.1)
             plt.ylim(-15, 15)
             plt.show()
         if False:
@@ -934,12 +934,12 @@ class ReduceBaseNirspec(ReduceBase):
             plt.scatter(allspatimg[idxs], outImage[idxs], c=allspecimg[idxs], s=0.1)
             plt.subplot(212)
             plt.scatter(allspatimg[idxs], outImage[idxs], c=allspecimg[idxs], s=0.1)
-            plt.scatter(allspatimg[idxs], allflux[idxs], c=allspecimg[idxs], s=0.1)
+            plt.scatter(allspatimg[idxs], allflux_nrm[idxs], c=allspecimg[idxs], s=0.1)
             plt.show()
-            plt.scatter(allspatimg[idxs], (allflux[idxs] - (outImage*utils.inverse(norm))[idxs])*np.sqrt(allivar[idxs]), c=allspecimg[idxs], s=0.1)
+            plt.scatter(allspatimg[idxs], (allflux_nrm[idxs] - (outImage * utils.inverse(norm))[idxs]) * np.sqrt(allivar_nrm[idxs]), c=allspecimg[idxs], s=0.1)
             plt.ylim(-5,5)
             plt.show()
-            plt.hist((allflux[idxs] - (outImage*utils.inverse(norm))[idxs])*np.sqrt(allivar[idxs]), bin=np.linspace(-5,5,100))
+            plt.hist((allflux_nrm[idxs] - (outImage * utils.inverse(norm))[idxs]) * np.sqrt(allivar_nrm[idxs]), bin=np.linspace(-5, 5, 100))
             embed()
         return outImage
 

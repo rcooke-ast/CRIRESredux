@@ -4,9 +4,7 @@ import numpy as np
 
 def main():
     # Initialise the reduce class
-    step1 = True
-    step2 = not step1
-    step1, step2 = False, False
+    step = 2
     thisred = Reduce(prefix="tet02OriA", match_name="tet02 Ori A", data_folder="Raw/",
                      use_diff=True,
                      step_listfiles=False, step_make_combinations=False,
@@ -16,12 +14,12 @@ def main():
                      step_makearc=False,  # Make an arc image
                      step_makediff=False,  # Make difference and sum images
                      step_makecuts=False,  # Make difference and sum images
-                     step_trace=False, step_extract=False, step_basis=True,#step1,
+                     step_trace=False, step_extract=False, step_basis=(step==0),
                      ext_sky=False,  # Trace the spectrum and extract
-                     step_wavecal_prelim=step1,  # Calculate a preliminary wavelength calibration solution
-                     step_prepALIS=step1,
+                     step_wavecal_prelim=(step==1),  # Calculate a preliminary wavelength calibration solution
+                     step_prepALIS=(step==1),
                      # Once the data are reduced, prepare a series of files to be used to fit the wavelength solution with ALIS
-                     step_combspec=False, step_combspec_rebin=step2,
+                     step_combspec=False, step_combspec_rebin=(step==2),
                      # First get the corrected data from ALIS, and then combine all exposures with this step.
                      step_wavecal_sky=False, step_comb_sky=False,
                      # Wavelength calibrate all sky spectra and then combine
@@ -33,6 +31,14 @@ def main():
 
 
 class Reduce(ReduceBase):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Change some of the default parameters
+        self._nbasis = 3  # Number of basis functions to use for the continuum
+        self._numcomp = 1
+        self._scalevariance = [10827.0, 10829.5]  # Scale the variance to match the measured variance in these regions
+        self._scale_errors = True  # Scale the errors by 10x in regions with low flux. This is only used for fitting the wavelength solution with ALIS. The errors are scaled back to their extraction values during the combination.
 
     def get_science_frames(self):
         #                A=1.0  (spec=0  DIT=5.0  NDIT=20)
