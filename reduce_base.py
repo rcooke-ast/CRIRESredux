@@ -649,7 +649,7 @@ class ReduceBase:
         specimg = np.arange(msarc.shape[0])[:, None].repeat(msarc.shape[1], axis=1)
         tiltdev = np.polyval(coeff, spatimg)
         tiltimg = specimg + tiltdev
-        if self._redux_path=="/Users/rcooke/Work/Research/BBN/helium34/Absorption/2023_CRIRES_Survey/HD319718/2024-05-13/":
+        if objfrm is not None and self._redux_path=="/Users/rcooke/Work/Research/BBN/helium34/Absorption/2023_CRIRES_Survey/HD319718/2024-05-13/":
             # Histogram the data to get object profile
             nsamples = 10
             flx, bin = np.histogram(spatimg.flatten(), bins=np.arange(-20, 20, 1/nsamples), weights=objfrm.flatten())
@@ -1194,10 +1194,12 @@ class ReduceBase:
             plt.show()
         return spl
 
-    def object_profile(self, allflux, allivar, allflux_nrm, allivar_nrm, allspecimg, allspatimg, gpm_img, maxspatl, maxspatr, full=False, plotscat=False, inspec=None):
+    def object_profile(self, allflux, allivar, allflux_nrm, allivar_nrm, allspecimg, allspatimg, gpm_img, inmaxspatl, inmaxspatr, objtrc, full=False, plotscat=False, inspec=None):
+        maxspatl = inmaxspatl + 1
+        maxspatr = inmaxspatr + 1
         limfl, limfr = self.get_objprof_limits(full=True)
         limpl, limpr = self.get_objprof_limits(full=False)
-        evpix = (allspecimg > limfl[0]) & (allspecimg < limfr[1]) & (allspatimg > -maxspatl) & (allspatimg < maxspatr)
+        evpix = (allspecimg > limfl[0]) & (allspecimg < limfr[1]) & (allspatimg > -inmaxspatl) & (allspatimg < inmaxspatr)
         # Perform the b-spline fit
         """
         iopt,kx,ky,m=          -1     ,      3     ,      3   ,    54010
@@ -1240,6 +1242,13 @@ class ReduceBase:
         ev_spec, ev_spat = allspecimg[evpix], allspatimg[evpix]
         idxs = np.where(evpix)
         gpm_img_new = gpm_img.copy() & (allivar_nrm != 0)
+        # Generate a subpixel sampling of allspatimg
+        subpixels = 10  # This is the subpixel sampling
+        allspatimg_sub = ((np.arange(allflux.shape[1]*subpixels)[:, np.newaxis].repeat(allflux.shape[0], axis=1).T + 0.5) / subpixels) - objtrc[np.newaxis,:].T
+        allspecimg_sub = np.repeat(allspecimg, subpixels, axis=1)  # This is a bit of a hack, but it should work pretty well when the tilts aren't too severe
+        evpix_sub = np.repeat(evpix, subpixels, axis=1)  # This is the subpixels corresponding to the pixels where the profile is being evaluated  #(allspecimg_sub > limfl[0]) & (allspecimg_sub < limfr[1]) & (allspatimg_sub > -inmaxspatl) & (allspatimg_sub < inmaxspatr)
+        ev_spec_sub, ev_spat_sub = allspecimg_sub[evpix_sub], allspatimg_sub[evpix_sub]
+        idxs_sub = np.where(evpix_sub)
         for tt in range(tsty.size):
             # This seems to work OK for tet02OriA_2021
             if full:
@@ -1291,16 +1300,24 @@ class ReduceBase:
         # plt.show()
         # embed()
         # Normalise
+        print("Generating subpixellated profile")
+        outImage_sub = np.zeros_like(allspatimg_sub)
+        for ii in range(ev_spec_sub.size):
+            outImage_sub[idxs_sub[0][ii], idxs_sub[1][ii]] = interpolate.bisplev(ev_spat_sub[ii], ev_spec_sub[ii], tck) / subpixels
         norm = utils.inverse(np.sum(outImage, axis=1)[:, None])
-        outImage *= np.median(norm[norm != 0.0])
+        normsub = utils.inverse(np.sum(outImage_sub, axis=1)[:, None])
+        # mednrm = np.median(norm[norm != 0.0])
+        # norm /= mednrm
+        # outImage *= mednrm
+        outImage *= np.median(normsub[normsub != 0.0])
         idxf = np.where(fitpix)
-        idxt = fitpix & (np.abs((allflux_nrm - (outImage * utils.inverse(norm))) * np.sqrt(allivar_nrm)) > 2.5)
+        idxt = fitpix & (np.abs((allflux_nrm - (outImage * utils.inverse(normsub))) * np.sqrt(allivar_nrm)) > 2.5)
         if plotscat:
             plt.subplot(211)
-            plt.scatter(allspatimg[idxf], (allflux_nrm[idxf] - (outImage * utils.inverse(norm))[idxf]) * np.sqrt(allivar_nrm[idxf]), c=allspecimg[idxf], s=0.2)
+            plt.scatter(allspatimg[idxf], (allflux_nrm[idxf] - (outImage * utils.inverse(normsub))[idxf]) * np.sqrt(allivar_nrm[idxf]), c=allspecimg[idxf], s=0.2)
             plt.ylim(-15, 15)
             plt.subplot(212)
-            plt.scatter(allspatimg[idxs], (allflux_nrm[idxs] - (outImage * utils.inverse(norm))[idxs]) * np.sqrt(allivar_nrm[idxs]), c=allspecimg[idxs], s=0.2)
+            plt.scatter(allspatimg[idxs], (allflux_nrm[idxs] - (outImage * utils.inverse(normsub))[idxs]) * np.sqrt(allivar_nrm[idxs]), c=allspecimg[idxs], s=0.2)
             plt.ylim(-15, 15)
             plt.show()
         if False:
@@ -1310,10 +1327,10 @@ class ReduceBase:
             plt.scatter(allspatimg[idxs], outImage[idxs], c=allspecimg[idxs], s=0.1)
             plt.scatter(allspatimg[idxs], allflux_nrm[idxs], c=allspecimg[idxs], s=0.1)
             plt.show()
-            plt.scatter(allspatimg[idxs], (allflux_nrm[idxs] - (outImage * utils.inverse(norm))[idxs]) * np.sqrt(allivar_nrm[idxs]), c=allspecimg[idxs], s=0.1)
+            plt.scatter(allspatimg[idxs], (allflux_nrm[idxs] - (outImage * utils.inverse(normsub))[idxs]) * np.sqrt(allivar_nrm[idxs]), c=allspecimg[idxs], s=0.1)
             plt.ylim(-5,5)
             plt.show()
-            plt.hist((allflux_nrm[idxs] - (outImage * utils.inverse(norm))[idxs]) * np.sqrt(allivar_nrm[idxs]), bin=np.linspace(-5, 5, 100))
+            plt.hist((allflux_nrm[idxs] - (outImage * utils.inverse(normsub))[idxs]) * np.sqrt(allivar_nrm[idxs]), bin=np.linspace(-5, 5, 100))
             embed()
         # If inspec is provided, adjust the object profile image
         outImageAdjust = outImage.copy()
@@ -1427,9 +1444,9 @@ class ReduceBase:
                 tmp_spec = allspecimg[wslice]
                 tmp_allspat[np.logical_not(gpm_img_new)] = 100  # An Arbitrary large number >> 1
                 trc_pix = (np.arange(tmp_dat.shape[0]), np.argmin(np.abs(tmp_allspat[wslice]), axis=1),)
-                norm = tmp_dat[trc_pix] * utils.inverse(tmp_mod[trc_pix])
-                diff = tmp_dat - tmp_mod * norm[:,None]
-                diffb = tmp_dat - tmp_modb * norm[:,None]
+                normb = tmp_dat[trc_pix] * utils.inverse(tmp_mod[trc_pix])
+                diff = tmp_dat - tmp_mod * normb[:,None]
+                diffb = tmp_dat - tmp_modb * normb[:,None]
 
                 # plt.subplot(131)
                 # plt.imshow(diff, vmin=-0.03 * modmax, vmax=0.03 * modmax)
@@ -1543,7 +1560,7 @@ class ReduceBase:
                 plt.plot(tmp_dat[829-100:829+100,:].flatten(), diff[829 - 100:829 + 100, :].flatten(), 'bx')
                 plt.show()
 
-        return outImageAdjust, gpm_img_new, opdata
+        return outImageAdjust, gpm_img_new, opdata, norm, normsub
 
     def mean_bg(self, inImage, inMask, thisboxpix, allspecimg, allspatimg, nwindow_left, nwindow_right, idx):
         limfl, limfr = self.get_objprof_limits(full=True)
@@ -1904,7 +1921,7 @@ class ReduceBase:
                 embed()
                 assert (False)
 
-    def basis_fit(self, extfrm_use, ivar_use, tilts, waveimg, spatimg, spec, idx, extfrm_use_nrm, ivar_use_nrm, full_bg, edges=None, fullprof=False, plot_resid=False, inspec=None):
+    def basis_fit(self, extfrm_use, ivar_use, tilts, waveimg, spatimg, spec, idx, extfrm_use_nrm, ivar_use_nrm, full_bg, edges=None, fullprof=False, plot_resid=False, inspec=None, trccen=None):
         # print("BIG ERROR!!! DELETE THIS RETURN STATEMENT")
         # print("BIG ERROR!!! DELETE THIS RETURN STATEMENT")
         # print("BIG ERROR!!! DELETE THIS RETURN STATEMENT")
@@ -1930,11 +1947,26 @@ class ReduceBase:
         ledge, redge = edges
         nwindow_left = int(min(np.min(spec.TRACE_SPAT.flatten() - ledge), nwindow))
         nwindow_right = int(min(np.min(redge-spec.TRACE_SPAT.flatten()), nwindow))
-        print("Left window edge = {0:d}, Right window edge = {1:d}".format(nwindow_left, nwindow_right))
+        numtrc = 1
+        if trccen is not None:
+            if len(trccen) == 2:
+                numtrc = 2
+                midtrc = 0.5 * (trccen[0].TRACE_SPAT + trccen[1].TRACE_SPAT)
+                tsttrc = np.median(spec.TRACE_SPAT.flatten() - midtrc)
+                if tsttrc < 0:
+                    nwindow_right = -tsttrc
+                else:
+                    nwindow_left = tsttrc
+            else:
+                print("I'm not ready for this functionality yet!")
+                assert(False)
+        print("Left window edge = {0:f}, Right window edge = {1:f}".format(float(nwindow_left), float(nwindow_right)))
         # Trace the spectral tilt
         # allspecimg = np.arange(extfrm_use.shape[0])[:, None].repeat(extfrm_use.shape[1], axis=1)
         objframe = extfrm_use if self._redux_path == "/Users/rcooke/Work/Research/BBN/helium34/Absorption/2023_CRIRES_Survey/HD319718/2024-05-13/" else None
-        allspecimg, allspecimg_dev = self.trace_tilt(spec.TRACE_SPAT.flatten(), trcnum=min(nwindow_left, nwindow_right), plotit=False, objfrm=objframe)
+        # allspecimg, allspecimg_dev = self.trace_tilt(spec.TRACE_SPAT.flatten(), trcnum=min(nwindow_left, nwindow_right), plotit=False, objfrm=objframe)
+        allspecimg = np.arange(extfrm_use.shape[0])[:, None].repeat(extfrm_use.shape[1], axis=1)
+        allspecimg_dev = np.zeros_like(allspecimg)
         allspatimg = (spatimg - spec.TRACE_SPAT[np.newaxis,:].T)
         allspec = allspecimg.flatten()
         allspat = allspatimg.flatten()
@@ -1943,7 +1975,13 @@ class ReduceBase:
         # bins = np.arange(-binsize / 2 - nwindow_left, nwindow_right + binsize, binsize)
         # inds = np.digitize(allspat, bins)
         gpm_img = onslit.copy()
-        gpm_extwin = (allspatimg > np.max(-nwindow_left-3,0)) & (allspatimg < nwindow_right+3) & (ivar_use > 0) & gpm_img & (allspecimg>2) & (allspecimg<nspec-3)
+        if numtrc == 1:
+            gpm_extwin = (allspatimg > np.max(-nwindow_left-3,0)) & (allspatimg < nwindow_right+3) & (ivar_use > 0) & gpm_img & (allspecimg>2) & (allspecimg<nspec-3)
+        elif numtrc == 2:
+            gpm_extwin = (allspatimg >= np.max(-nwindow_left,0)) & (allspatimg < nwindow_right) & (ivar_use > 0) & gpm_img & (allspecimg>2) & (allspecimg<nspec-3)
+        else:
+            print("I'm not ready for this functionality yet!")
+            assert(False)
         # Identify salt and pepper pixels with a median filter
         ii, nmask, nnew = 0, 0, -1
         extfrm_use_med = extfrm_use.copy()
@@ -1985,7 +2023,8 @@ class ReduceBase:
         #     cnts *= utils.inverse(norm)
         #     plt.plot(cnts)
         #     plt.show()
-        opimg, opgpm, opdat = self.object_profile(extfrm_use, ivar_use, extfrm_use_nrm, ivar_use_nrm, allspecimg, allspatimg, gpm_extwin, nwindow_left, nwindow_right, full=fullprof, inspec=inspec)
+        opimg, opgpm, opdat, opnrm, opnrmsub = self.object_profile(extfrm_use, ivar_use, extfrm_use_nrm, ivar_use_nrm, allspecimg, allspatimg, gpm_extwin, nwindow_left, nwindow_right, spec.TRACE_SPAT, full=fullprof, inspec=inspec)
+        # extfrm_use *= opnrm
         # xloc = 0.5 * (bins[1:] + bins[:-1])
         if False:
             limpl, limpr = self.get_objprof_limits(full=False)
@@ -2113,7 +2152,8 @@ class ReduceBase:
                     # Redo trace to be constant emission velocity
                     # objfrm = None if self._use_diff else HIIresid + bgfitted
                     objfrm = extfrm_use if self._redux_path == "/Users/rcooke/Work/Research/BBN/helium34/Absorption/2023_CRIRES_Survey/HD319718/2024-05-13/" else None
-                    allspecimg, allspecimg_dev = self.trace_tilt(spec.TRACE_SPAT.flatten(), trcnum=min(nwindow_left, nwindow_right), plotit=False, objfrm=objfrm)
+                    # allspecimg, allspecimg_dev = self.trace_tilt(spec.TRACE_SPAT.flatten(), trcnum=int(min(nwindow_left, nwindow_right)), plotit=False, objfrm=objfrm)
+                    allspecimg, allspecimg_dev = self.trace_tilt(spec.TRACE_SPAT.flatten(), trcnum=int(max(nwindow_left, nwindow_right)), plotit=False, objfrm=None)
                     allspec = allspecimg.flatten()
                     # Fit the background emission
                     if mean_bg:
@@ -2347,15 +2387,17 @@ class ReduceBase:
         # Extract again
         if True:
             print("Final extraction with updated variance")
+            normfact = opnrmsub.flatten()/np.median(opnrmsub.flatten()[opnrmsub.flatten()>0])
+            normfact_box = opnrmsub.flatten() * utils.inverse(opnrm.flatten())
             extract_boxcar(extfrm_use, ivar_out, gpm_img_new, allspecimg, bgfitted, spec)
             extract_optimal(extfrm_use, ivar_out, gpm_img_new, allspecimg, bgfitted, gpm_img_new, profile_img, spec, min_frac_use=0.05, base_var=None, count_scale=None, noise_floor=None)
-            spec_boxcar_sky = spec.BOX_COUNTS_SKY.flatten() * utils.inverse(boxskywght)
-            spec_boxcar_flx = spec.BOX_COUNTS.flatten() * utils.inverse(boxwght)
-            spec_boxcar_sig = spec.BOX_COUNTS_SIG.flatten() * utils.inverse(boxwght)
+            spec_boxcar_sky = spec.BOX_COUNTS_SKY.flatten() * utils.inverse(boxskywght) * normfact_box
+            spec_boxcar_flx = spec.BOX_COUNTS.flatten() * utils.inverse(boxwght) * normfact_box
+            spec_boxcar_sig = spec.BOX_COUNTS_SIG.flatten() * utils.inverse(boxwght) * normfact_box
             spec_boxcar_wav = spec.BOX_WAVE.flatten()
             spec_optimal_sky = spec.OPT_COUNTS_SKY.flatten()
-            spec_optimal_flx = spec.OPT_COUNTS.flatten()
-            spec_optimal_sig = spec.OPT_COUNTS_SIG.flatten()
+            spec_optimal_flx = spec.OPT_COUNTS.flatten() * normfact
+            spec_optimal_sig = spec.OPT_COUNTS_SIG.flatten() * normfact
             spec_optimal_wav = spec.OPT_WAVE.flatten()
 
         # Plot the residual images
@@ -2505,6 +2547,16 @@ class ReduceBase:
         # Use the boxcar sig, since it basically agrees with the optimal sig, but accounts for the differences
         # when the flux gradient is large, and the optimal profile fails to capture the correct flux in these regions.
         # xspec1d = XSpectrum1D.from_tuple((spec_optimal_wav, spec_optimal_flx, spec_boxcar_sig), verbose=False)  # This one assumes no background
+        if False:
+            # Plot the spectra to see if the scaling has been correctly applied
+            embed()
+            # nrmfact = opnrmsub.flatten() * utils.inverse(opnrm.flatten())
+            nrmfact = np.ones(spec_optimal_wav.size)
+            # nrmfact = opnrm.flatten()# * utils.inverse(boxwght.flatten())
+            plt.plot(spec_optimal_wav, spec_optimal_flx, 'k-', drawstyle='steps-mid')
+            plt.plot(spec_boxcar_wav, spec_boxcar_flx*nrmfact, 'r-', drawstyle='steps-mid')
+            plt.plot(spec_optimal_wav, nrmfact*np.median(spec_optimal_flx)/np.median(nrmfact), 'b-', drawstyle='steps-mid')
+            plt.show()
         xspec1d = XSpectrum1D.from_tuple((spec_optimal_wav, spec_optimal_flx, spec_optimal_sig), verbose=False)  # This one assumes no background
         return spec_optimal_flx, outspecimg, bgfitted, xspec1d, ivar_out
         # return spec_optimal_flx, bgfitted, xspec1d, ivar_out
@@ -2629,31 +2681,80 @@ class ReduceBase:
                 #     cen = trc_edg[0].TRACE_SPAT + 35
                 ledge = cen - 85
                 redge = cen + 85
-                boxcar_rad = 10.0
+                boxcar_rad = 3.0#10.0
                 # plt.imshow(frame, vmin=-1000, vmax=1000)
                 # plt.plot(ledge, np.arange(ledge.size), 'r-')
                 # plt.plot(redge, np.arange(redge.size), 'r-')
                 # plt.show()
                 # frame_filt = ndimage.median_filter(frm, size=(7, 1))
                 # frame_filt = ndimage.gaussian_filter(frame_filt, sigma=1.0)
+                numtrc = 1
+                if self._prefix == "hd319718":
+                    numtrc = 2
                 trc_pos_tmp = findobj_skymask.objs_in_slit(
                     trframe, ivar, thismask, ledge, redge,
                     ncoeff=self._polyord, boxcar_rad=boxcar_rad,
-                    show_fits=self._plotit, nperslit=1)
-                if trname != difnstr:
+                    show_fits=self._plotit, nperslit=numtrc)
+                if trname != difnstr and numtrc == 1:
                     trc_pos = findobj_skymask.objs_in_slit(
                         frame, ivar, thismask, ledge, redge,
                         ncoeff=self._polyord, boxcar_rad=boxcar_rad,
-                        show_fits=self._plotit, nperslit=1, std_trace=trc_pos_tmp[0].TRACE_SPAT)
+                        show_fits=self._plotit, nperslit=numtrc, std_trace=trc_pos_tmp[0].TRACE_SPAT)
+                elif trname != difnstr:
+                    # Cross-correlate the two frames in the spatial direction to find the offsets
+                    trc_pos_fid = findobj_skymask.objs_in_slit(
+                        frame, ivar, thismask, ledge, redge,
+                        ncoeff=self._polyord, boxcar_rad=boxcar_rad,
+                        show_fits=self._plotit, nperslit=numtrc, std_trace=trc_pos_tmp[0].TRACE_SPAT)
+                    if len(trc_pos_fid) != numtrc:
+                        # This code was written with HD 319718 in mind
+                        if self._prefix != "hd319718":
+                            raise ValueError("This code is only for HD319718 -- Number of traces do not match!")
+                        # Register the frame according to the trace position
+                        relspat = spatimg - trc_pos_fid[0].TRACE_SPAT[np.newaxis, :].T
+                        # median filter the frames to reduce noise
+                        frame_filt = ndimage.median_filter(frame, size=(5, 1))
+                        # frame_filt = ndimage.gaussian_filter(frame_filt, sigma=1.0)
+                        # Compute a histogram of the spatial positions
+                        whist = np.where((np.abs(relspat) < 20) & (np.abs(waveimg-frame.shape[0]//2) < 200))
+                        bins = np.arange(-20, 20, 0.1)
+                        histprof, bin_edges = np.histogram(relspat[whist], bins=bins, weights=frame_filt[whist])
+                        normprof, bin_edges = np.histogram(relspat[whist], bins=bins)
+                        histprof *= utils.inverse(normprof)
+                        # Smooth the profile
+                        histprof = ndimage.gaussian_filter1d(histprof, sigma=2.0)
+                        # Find the second trace position
+                        pks, pkshgt = signal.find_peaks(histprof, height=100)
+                        # Check there are two peaks
+                        if len(pks) < 2:
+                            raise ValueError("Could not find second trace for HD319718!")
+                        peakind = np.argsort(pkshgt['peak_heights'])[-2:]
+                        peakpos = pks[peakind]
+                        # Fit a low order polynomial around the peaks
+                        ppos_fit = np.zeros(2)
+                        for pp in range(2):
+                            fitind = np.where((bin_edges[:-1] >= bin_edges[peakpos[pp]]-2.0) &
+                                              (bin_edges[1:] <= bin_edges[peakpos[pp]]+2.0))[0]
+                            pcoeff = np.polyfit(0.5*(bin_edges[fitind]+bin_edges[fitind+1]),
+                                                histprof[fitind], 2)
+                            ppos_fit[pp] = -0.5 * pcoeff[1]/pcoeff[0]
+                        # Make two new traces, offset by these values
+                        trc_pos = trc_pos_tmp
+                        trc_pos[0].TRACE_SPAT = trc_pos_fid[0].TRACE_SPAT + ppos_fit[0]
+                        trc_pos[1].TRACE_SPAT = trc_pos_fid[0].TRACE_SPAT + ppos_fit[1]
+                    else:
+                        trc_pos = trc_pos_fid
                 else:
                     trc_pos = trc_pos_tmp
-                if self._plotit:# or True:
+                if self._plotit or numtrc == 2:
                     spec = np.arange(frame.shape[self._specaxis])
-                    plt.imshow(frame.T, vmin=-200, vmax=200, origin='lower')
-                    plt.plot(spec, trc_pos[0].TRACE_SPAT + boxcar_rad, 'b-')
-                    # plt.plot(spec, trc_neg[0].TRACE_SPAT + boxcar_rad, 'b-')
-                    plt.plot(spec, trc_pos[0].TRACE_SPAT - boxcar_rad, 'r-')
-                    # plt.plot(spec, trc_neg[0].TRACE_SPAT - boxcar_rad, 'r-')
+                    plt.imshow(frame.T, vmin=-200, vmax=5000, origin='lower', aspect=frame.shape[self._specaxis]/frame.shape[1-self._specaxis])
+                    for sss in range(len(trc_pos)):
+                        plt.plot(spec, trc_pos[sss].TRACE_SPAT, 'k--')
+                        plt.plot(spec, trc_pos[sss].TRACE_SPAT + boxcar_rad, 'b-')
+                        plt.plot(spec, trc_pos[sss].TRACE_SPAT - boxcar_rad, 'r-')
+                        # plt.plot(spec, trc_neg[0].TRACE_SPAT + boxcar_rad, 'b-')
+                        # plt.plot(spec, trc_neg[0].TRACE_SPAT - boxcar_rad, 'r-')
                     plt.plot(spec, trc_pos[0].TRACE_SPAT - 40, 'g-')
                     plt.plot(spec, trc_pos[0].TRACE_SPAT - 100, 'g-')
 
@@ -2661,8 +2762,8 @@ class ReduceBase:
                     # plt.plot(spec, trc_posb[0].TRACE_SPAT - boxcar_rad, 'r--')
                     # plt.plot(spec, trc_posb[0].TRACE_SPAT - 40, 'g--')
                     # plt.plot(spec, trc_posb[0].TRACE_SPAT - 100, 'g--')
-
                     plt.show()
+                    # embed()
 
                 all_traces.append(trc_pos)
                 # all_traces.append(trc_neg)
@@ -2672,10 +2773,24 @@ class ReduceBase:
                     objmodel = np.zeros_like(frame)
                     ivarmodel = np.zeros_like(frame)
                     extractmask = np.zeros_like(frame)
-                    trcs = [trc_pos[0]]#, trc_neg[0]]
+                    if self._prefix == "hd319718":
+                        trcs = [trc_pos[0], trc_pos[1]]#, trc_neg[0]]
+                    else:
+                        trcs = [trc_pos[0]]#, trc_neg[0]]
+                    # store traces for this frame, to be sent to basis fit.
+                    if numtrc == 2:
+                        trccen = trcs
+                    elif numtrc == 1:
+                        trccen = None
+                    else:
+                        trccen = None
+                        print("Not ready for this number of traces!")
+                        assert (False)
+                    # Loop over traces
                     isstd = False  # True
                     if self._ext_sky: isstd = False
-                    for tt in range(1):
+                    print("There are {} traces to extract".format(len(trcs)))
+                    for tt in range(len(trcs)):
                         # if ff == 5 and tt == 1: pass
                         # else: continue
                         if self._ext_sky:
@@ -2729,7 +2844,7 @@ class ReduceBase:
                                     bgfrac_adjust = 0.1
                                 elif it >= 3:
                                     bgfrac_adjust = 1.0
-                                objspec, objspec_img, bgfitted_new, xspec1d, ivar_send = self.basis_fit(extfrm_use.copy()-bgfitted, ivar_send, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt, extfrm_use_nrm, ivar_use_nrm, bgfitted, edges=[ledge, redge], fullprof=it!=0, plot_resid=(it==numiterfit-1), inspec=objspec)
+                                objspec, objspec_img, bgfitted_new, xspec1d, ivar_send = self.basis_fit(extfrm_use.copy()-bgfitted, ivar_send, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt, extfrm_use_nrm, ivar_use_nrm, bgfitted, edges=[ledge, redge], fullprof=it!=0, plot_resid=(it==numiterfit-1), inspec=objspec, trccen=trccen)
                                 if it <= 20:
                                     # For the low iterations, don't change the inverse variance
                                     ivar_send = np.copy(ivar_use)
@@ -2811,8 +2926,9 @@ class ReduceBase:
                                      drawstyle='steps-mid')
             # Now collect all of the extractions of this one frame to make a master file, and save it.
             print("TOTAL (inner loop) TIME = ", (time.time() - st_time) / 60.0, "mins")
-            out_specname = self._procpath + self._prefix+"_spec{0:02d}.dat".format(ff)
-            self.comb_rebin_pixel(raw_specs, outfile=out_specname)
+            for tt in range(numtrc):
+                out_specname = self._procpath + self._prefix+"_spec{0:02d}.dat".format(numtrc*ff+tt)
+                self.comb_rebin_pixel([raw_specs[tt]], outfile=out_specname)
         print("TOTAL TIME = ", (time.time()-st_time)/60.0, "mins")
 
     def step_wavecal_prelim(self):

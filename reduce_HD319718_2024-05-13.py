@@ -4,7 +4,7 @@ import numpy as np
 
 def main():
     # Initialise the reduce class
-    step = 2
+    step = 0
     thisred = Reduce(prefix="hd319718", match_name="HD 319718", data_folder="Raw/",
                      use_diff=True,
                      step_listfiles=False, step_make_combinations=False,
@@ -34,7 +34,7 @@ class Reduce(ReduceBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Change some of the default parameters
-        self._nbasis = 3
+        self._nbasis = 2
         self._numcomp = 2
         self._scalevariance = [10828.0, 10829.3]  # Scale the variance to match the measured variance in these regions
         self._scale_errors = True  # Scale the errors by 10x in regions with low flux. This is only used for fitting the wavelength solution with ALIS. The errors are scaled back to their extraction values during the combination.
