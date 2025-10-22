@@ -11,6 +11,7 @@ from matplotlib import pyplot as plt
 from pypeit import utils
 from pypeit.core import procimg, skysub, findobj_skymask
 from pypeit.core.extract import fit_profile, extract_optimal, extract_boxcar
+from pypeit.core.fitting import robust_fit
 from pypeit import specobj
 
 from linetools.spectra.xspectrum1d import XSpectrum1D
@@ -2196,7 +2197,7 @@ class ReduceBase:
                         self.save_bgemission(bgfitted, idx)
                     # Redo object trace after removing the emission component
                     spec = findobj_skymask.objs_in_slit(
-                        extfrm_use - bgfitted, ivar_use, gpm_img_new, ledge, redge,
+                        extfrm_use - bgfitted, ivar_use, gpm_img_new & opgpm, ledge, redge,
                         ncoeff=self._polyord, boxcar_rad=3.0,
                         show_fits=self._plotit, nperslit=1)[0]
                     allspatimg = (spatimg - spec.TRACE_SPAT[np.newaxis,:].T)
@@ -2696,52 +2697,86 @@ class ReduceBase:
                     ncoeff=self._polyord, boxcar_rad=boxcar_rad,
                     show_fits=self._plotit, nperslit=numtrc)
                 if trname != difnstr and numtrc == 1:
+                    # Redfine the edges based on the expected trace of the object
+                    new_ledge = trc_pos_tmp[0].TRACE_SPAT - (np.median(trc_pos_tmp[0].TRACE_SPAT - ledge))
+                    new_redge = trc_pos_tmp[0].TRACE_SPAT - (np.median(trc_pos_tmp[0].TRACE_SPAT - redge))
                     trc_pos = findobj_skymask.objs_in_slit(
-                        frame, ivar, thismask, ledge, redge,
+                        frame, ivar, thismask, new_ledge, new_redge,
                         ncoeff=self._polyord, boxcar_rad=boxcar_rad,
                         show_fits=self._plotit, nperslit=numtrc, std_trace=trc_pos_tmp[0].TRACE_SPAT)
                 elif trname != difnstr:
-                    # Cross-correlate the two frames in the spatial direction to find the offsets
+                    # Redfine the edges based on the expected trace of the object
+                    new_ledge = trc_pos_tmp[0].TRACE_SPAT - (np.median(trc_pos_tmp[0].TRACE_SPAT - ledge))
+                    new_redge = trc_pos_tmp[0].TRACE_SPAT - (np.median(trc_pos_tmp[0].TRACE_SPAT - redge))
                     trc_pos_fid = findobj_skymask.objs_in_slit(
-                        frame, ivar, thismask, ledge, redge,
+                        frame, ivar, thismask, new_ledge, new_redge,
                         ncoeff=self._polyord, boxcar_rad=boxcar_rad,
-                        show_fits=self._plotit, nperslit=numtrc, std_trace=trc_pos_tmp[0].TRACE_SPAT)
+                        show_fits=self._plotit, nperslit=1, std_trace=trc_pos_tmp[0].TRACE_SPAT)
                     if len(trc_pos_fid) != numtrc:
                         # This code was written with HD 319718 in mind
                         if self._prefix != "hd319718":
                             raise ValueError("This code is only for HD319718 -- Number of traces do not match!")
-                        # Register the frame according to the trace position
-                        relspat = spatimg - trc_pos_fid[0].TRACE_SPAT[np.newaxis, :].T
-                        # median filter the frames to reduce noise
-                        frame_filt = ndimage.median_filter(frame, size=(5, 1))
-                        # frame_filt = ndimage.gaussian_filter(frame_filt, sigma=1.0)
-                        # Compute a histogram of the spatial positions
-                        whist = np.where((np.abs(relspat) < 20) & (np.abs(waveimg-frame.shape[0]//2) < 200))
-                        bins = np.arange(-20, 20, 0.1)
-                        histprof, bin_edges = np.histogram(relspat[whist], bins=bins, weights=frame_filt[whist])
-                        normprof, bin_edges = np.histogram(relspat[whist], bins=bins)
-                        histprof *= utils.inverse(normprof)
-                        # Smooth the profile
-                        histprof = ndimage.gaussian_filter1d(histprof, sigma=2.0)
-                        # Find the second trace position
-                        pks, pkshgt = signal.find_peaks(histprof, height=100)
-                        # Check there are two peaks
-                        if len(pks) < 2:
-                            raise ValueError("Could not find second trace for HD319718!")
-                        peakind = np.argsort(pkshgt['peak_heights'])[-2:]
-                        peakpos = pks[peakind]
-                        # Fit a low order polynomial around the peaks
-                        ppos_fit = np.zeros(2)
-                        for pp in range(2):
-                            fitind = np.where((bin_edges[:-1] >= bin_edges[peakpos[pp]]-2.0) &
-                                              (bin_edges[1:] <= bin_edges[peakpos[pp]]+2.0))[0]
-                            pcoeff = np.polyfit(0.5*(bin_edges[fitind]+bin_edges[fitind+1]),
-                                                histprof[fitind], 2)
-                            ppos_fit[pp] = -0.5 * pcoeff[1]/pcoeff[0]
-                        # Make two new traces, offset by these values
-                        trc_pos = trc_pos_tmp
-                        trc_pos[0].TRACE_SPAT = trc_pos_fid[0].TRACE_SPAT + ppos_fit[0]
-                        trc_pos[1].TRACE_SPAT = trc_pos_fid[0].TRACE_SPAT + ppos_fit[1]
+                        if False:
+                            # OLD METHOD
+                            # Register the frame according to the trace position
+                            relspat = spatimg - trc_pos_fid[0].TRACE_SPAT[np.newaxis, :].T
+                            # median filter the frames to reduce noise
+                            frame_filt = ndimage.median_filter(frame, size=(5, 1))
+                            # frame_filt = ndimage.gaussian_filter(frame_filt, sigma=1.0)
+                            # Compute a histogram of the spatial positions
+                            whist = np.where((np.abs(relspat) < 20) & (np.abs(waveimg-frame.shape[0]//2) < 200))
+                            bins = np.arange(-20, 20, 0.1)
+                            histprof, bin_edges = np.histogram(relspat[whist], bins=bins, weights=frame_filt[whist])
+                            normprof, bin_edges = np.histogram(relspat[whist], bins=bins)
+                            histprof *= utils.inverse(normprof)
+                            # Smooth the profile
+                            histprof = ndimage.gaussian_filter1d(histprof, sigma=2.0)
+                            # Find the second trace position
+                            pks, pkshgt = signal.find_peaks(histprof, height=100)
+                            # Check there are two peaks
+                            if len(pks) < 2:
+                                raise ValueError("Could not find second trace for HD319718!")
+                            peakind = np.argsort(pkshgt['peak_heights'])[-2:]
+                            peakpos = pks[peakind]
+                            # Fit a low order polynomial around the peaks
+                            ppos_fit = np.zeros(2)
+                            for pp in range(2):
+                                fitind = np.where((bin_edges[:-1] >= bin_edges[peakpos[pp]]-2.0) &
+                                                  (bin_edges[1:] <= bin_edges[peakpos[pp]]+2.0))[0]
+                                pcoeff = np.polyfit(0.5*(bin_edges[fitind]+bin_edges[fitind+1]),
+                                                    histprof[fitind], 2)
+                                ppos_fit[pp] = -0.5 * pcoeff[1]/pcoeff[0]
+                            # Make two new traces, offset by these values
+                            trc_pos = trc_pos_tmp
+                            trc_pos[0].TRACE_SPAT = trc_pos_fid[0].TRACE_SPAT + ppos_fit[0]
+                            trc_pos[1].TRACE_SPAT = trc_pos_fid[0].TRACE_SPAT + ppos_fit[1]
+                        else:
+                            # NEW METHOD -- recalculate the trace of two objects simultaneously
+                            # For each for in the data, find two peaks in the spatial profile
+                            ppos_fit = np.zeros((frame.shape[self._specaxis], 2))
+                            for rc in range(frame.shape[self._specaxis]):
+                                pks, pkshgt = signal.find_peaks(frame[rc,:], height=100)
+                                # Check there are two peaks
+                                if len(pks) < 2:
+                                    continue
+                                peakind = np.argsort(pkshgt['peak_heights'])[-2:]
+                                peakpos = pks[peakind]
+                                # Of these, sort by the peak position
+                                peakpos = np.sort(peakpos)
+                                # Fit a low order polynomial around the peaks
+                                spatarr = np.arange(frame.shape[1-self._specaxis])
+                                for pp in range(2):
+                                    fitind = np.where((spatarr >= peakpos[pp]-2.0) & (spatarr <= peakpos[pp]+2.0))[0]
+                                    pcoeff = np.polyfit(spatarr[fitind], frame[rc, fitind], 2)
+                                    ppos_fit[rc, pp] = -0.5 * pcoeff[1] / pcoeff[0]
+                            # Make two new traces, fit with a polynomial order
+                            trc_pos = trc_pos_tmp
+                            for tt in range(2):
+                                # median filter to get rid of bad points
+                                ppos_fit[:, tt] = ndimage.median_filter(ppos_fit[:, tt], size=11)
+                                # fit with a robust polynomial
+                                result = robust_fit(np.arange(frame.shape[self._specaxis]), ppos_fit[:, tt], self._polyord, in_gpm=ppos_fit[:, tt]!=0, maxdev=5.0)
+                                trc_pos[tt].TRACE_SPAT = result.eval(np.arange(frame.shape[self._specaxis]))
                     else:
                         trc_pos = trc_pos_fid
                 else:
@@ -2763,7 +2798,6 @@ class ReduceBase:
                     # plt.plot(spec, trc_posb[0].TRACE_SPAT - 40, 'g--')
                     # plt.plot(spec, trc_posb[0].TRACE_SPAT - 100, 'g--')
                     plt.show()
-                    # embed()
 
                 all_traces.append(trc_pos)
                 # all_traces.append(trc_neg)

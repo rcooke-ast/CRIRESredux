@@ -36,6 +36,7 @@ class Reduce(ReduceBase):
         # Change some of the default parameters
         self._nbasis = 2
         self._numcomp = 2
+        self._polyord = 2
         self._scalevariance = [10828.0, 10829.3]  # Scale the variance to match the measured variance in these regions
         self._scale_errors = True  # Scale the errors by 10x in regions with low flux. This is only used for fitting the wavelength solution with ALIS. The errors are scaled back to their extraction values during the combination.
 
