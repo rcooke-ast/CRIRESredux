@@ -3,7 +3,7 @@ from reduce_base import ReduceBase
 
 def main():
     # Initialise the reduce class
-    step = 0
+    step = 2
     thisred = Reduce(prefix="tet02OriA", match_name="tet02 Ori A", data_folder="Raw/",
                      use_diff=True,
                      step_listfiles=False, step_make_combinations=False,
@@ -30,6 +30,10 @@ def main():
 class Reduce(ReduceBase):
 
     def __init__(self, **kwargs):
+        """
+        Frame 07 has a wavy feature that is not ideal... Is this impacting the object profile?
+        A similar problem with Frame 11 - even more severe.
+        """
         super().__init__(**kwargs)
         # Change some of the default parameters
         self._nbasis = 3  # Number of basis functions to use for the continuum

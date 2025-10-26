@@ -4,7 +4,7 @@ import numpy as np
 
 def main():
     # Initialise the reduce class
-    step = 0
+    step = 2
     thisred = Reduce(prefix="hd319718", match_name="HD 319718", data_folder="Raw/",
                      use_diff=True,
                      step_listfiles=False, step_make_combinations=False,

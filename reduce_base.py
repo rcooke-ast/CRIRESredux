@@ -284,8 +284,9 @@ class ReduceBase:
             # usePath = self._altpath + "alt_"
             # if self._use_diff: usePath = self._procpath
             usePath = self._procpath
-            print(self._numframes * len(self._nods), self._numframes, len(self._nods))
-            for ff in range(self._numframes):# * len(self._nods)):
+            numspec = 2 if self._prefix == "hd319718" else 1
+            # print(self._numframes * len(self._nods), self._numframes, len(self._nods))
+            for ff in range(self._numframes*numspec):# * len(self._nods)):
                 if self.is_frame_masked(ff) or not self.is_frame_in_set(ff, self._comb_set):
                     # embed()
                     # assert False
@@ -327,9 +328,10 @@ class ReduceBase:
             # usePath = self._altpath
             # if self._use_diff: usePath = self._procpath
             usePath = self._procpath
+            numspec = 2 if self._prefix == "hd319718" else 1
             for ff in range(self._numframes):
-                for nn in range(1):#, nod in enumerate(self._nods):
-                    this_ff = ff
+                for nn in range(numspec):#, nod in enumerate(self._nods):
+                    this_ff = numspec*ff + nn
                     if self.is_frame_masked(ff):
                         print("FRAME {0:d} is masked!!".format(this_ff))
                         continue
@@ -452,6 +454,7 @@ class ReduceBase:
                 plt.plot(out_wave[ww], out_flux[ww, sp], 'bx', drawstyle='steps-mid')
             plt.plot(out_wave, spec, 'r-', drawstyle='steps-mid')
             plt.plot(out_wave, specerr_new, 'g', drawstyle='steps-mid')
+            plt.ylim(-0.2, 1.2)
             plt.show()
         # Save the final spectrum
         print("Saving output spectrum...")
@@ -1027,10 +1030,19 @@ class ReduceBase:
         # Make difference images
         for mm in range(self._numframes):
             fil_a = fits.open(self._datapath + self._matches[mm][0][0])
-            fil_b = fits.open(self._datapath + self._matches[mm][1][0])
-            # Double check which is img_a and which is img_b
             img_a = fil_a[self._chip].data
-            img_b = fil_b[self._chip].data
+            # embed()
+            # assert False
+            # Take an average of all the matched frames to be subtracted off the main science frame
+            for ff in range(len(self._matches[mm][1])):
+                fil_b = fits.open(self._datapath + self._matches[mm][1][ff])
+                if ff == 0:
+                    img_b_arr = fil_b[self._chip].data[:,:,np.newaxis]
+                else:
+                    img_b_arr = np.concatenate((img_b_arr, fil_b[self._chip].data[:,:,np.newaxis]), axis=2)
+            # average to remove some ofo the higher values
+            img_b, _, _ = stats.sigma_clipped_stats(img_b_arr, sigma=3.0, maxiters=5, axis=2, stdfunc='mad_std')
+            # img_b = np.mean(img_b_arr, axis=2)
             # if fil_a[0].header['HIERARCH ESO SEQ NODPOS'].strip() == 'A':
             #     print("Found A", mm)
             #     img_a = fil_a[self._chip].data
@@ -1289,7 +1301,7 @@ class ReduceBase:
                 outImage[idxs[0][ii], idxs[1][ii]] = interpolate.bisplev(ev_spat[ii], ev_spec[ii], tck)
             # Reject deviant pixels
             tst = (allflux_nrm - outImage) * np.sqrt(allivar_nrm)
-            bpix = np.where(gpm_img_new & (np.abs(tst) > 30))
+            bpix = np.where(gpm_img_new & (np.abs(tst) > 20))
             gpm_img_new[bpix] = False
             print("New bad pixels in object profile :: ", bpix[0].size)
             if bpix[0].size == 0:
@@ -1305,6 +1317,9 @@ class ReduceBase:
         outImage_sub = np.zeros_like(allspatimg_sub)
         for ii in range(ev_spec_sub.size):
             outImage_sub[idxs_sub[0][ii], idxs_sub[1][ii]] = interpolate.bisplev(ev_spat_sub[ii], ev_spec_sub[ii], tck) / subpixels
+        minv = np.min(outImage_sub[outImage_sub!=0.0])
+        outImage[outImage!=0] -= minv*subpixels
+        outImage_sub[outImage_sub!=0] -= minv
         norm = utils.inverse(np.sum(outImage, axis=1)[:, None])
         normsub = utils.inverse(np.sum(outImage_sub, axis=1)[:, None])
         # mednrm = np.median(norm[norm != 0.0])
@@ -1339,17 +1354,37 @@ class ReduceBase:
         if inspec is not None:
             # embed()
             # assert False
-            # Generate a smoothing spline
-            spl = self.smoothing_spline(allspecimg, allflux, allivar, gpm_img_new, outImage)
-            # Calculate the gradient
-            xspl = np.linspace(0.0, allspecimg.shape[0]-1, allspecimg.shape[0]*10)
-            yspl = spl(xspl)
-            outspecimg = spl(allspecimg)
-            dyspl = np.gradient(yspl, xspl)
-            gradimg = np.interp(allspecimg, xspl, dyspl)
-            ww = np.where((np.abs(gradimg) > 1000) & (allflux*np.sqrt(allivar) > 15) & (gpm_img_new) & (outImage>0.0))
+            if False:
+                # Generate a smoothing spline
+                spl = self.smoothing_spline(allspecimg, allflux, allivar, gpm_img_new, outImage, lam=1.0E-7)
+                # Calculate the gradient
+                xspl = np.linspace(0.0, allspecimg.shape[0]-1, allspecimg.shape[0]*10)
+                yspl = spl(xspl)
+                outspecimg = spl(allspecimg)
+                dyspl = np.gradient(yspl, xspl)
+                gradimg = np.interp(allspecimg, xspl, dyspl)
+                modimg = np.interp(allspecimg, xspl, yspl)
+            else:
+                # Use the inspec directly
+                xspl = np.arange(allspecimg.shape[0])
+                modimg = np.interp(allspecimg, xspl, inspec)
+                gradimg = np.gradient(modimg, xspl, axis=0)/np.median(inspec)
+            ww = np.where((np.abs(gradimg) > 0.05) & (allflux*np.sqrt(allivar) > 15) & (gpm_img_new) & (outImage>0.0))
             maskout = np.zeros_like(allflux, dtype=bool)
             maskout[ww] = True
+            if False:
+                plt.subplot(151)
+                plt.imshow(allflux, vmin=0, vmax=20000)
+                plt.subplot(152)
+                plt.imshow(modimg, vmin=0, vmax=200000)
+                plt.subplot(153)
+                plt.imshow(gradimg, vmin=-0.1, vmax=0.1)
+                # plt.imshow(allflux*np.sqrt(allivar), vmin=0, vmax=20)
+                plt.subplot(154)
+                plt.imshow(gpm_img_new)
+                plt.subplot(155)
+                plt.imshow(maskout)
+                plt.show()
             sumflux = np.sum(allflux*maskout, axis=1)
             nrmflux = np.sum(outImage*maskout, axis=1)
             outImageAdjust[ww] = allflux[ww]
@@ -1729,7 +1764,14 @@ class ReduceBase:
             vander = np.ones((xfit[gd].size, nbasis))
             vander[:, 0] = opspl[ss, :][gd]# opspl(xdat[gd])
             vander[:, 1:] = np.polynomial.legendre.legvander(xfit[gd], nbasis - 2)
-            c, cov = self.basis_fitter(xfit[gd], yfit[gd], vander.copy(), w=wfit[gd], debug=False)  # ss==1000)
+            try:
+                c, cov = self.basis_fitter(xfit[gd], yfit[gd], vander.copy(), w=wfit[gd], debug=False)  # ss==1000)
+            except np.linalg.LinAlgError:
+                print("LinAlgError on basis fit... Possibly the object profile is wrong, or the data are bad")
+                embed()
+                assert False
+                c = np.zeros(nbasis)
+                cov = np.zeros((nbasis, nbasis)) + 1e20
             coeffs[ss, :] = c.copy()
             ccont = c.copy()
             ccont[1] = 0
@@ -1836,7 +1878,11 @@ class ReduceBase:
                 vander = np.ones((xfit[gd].size, nbasis))
                 vander[:, 0] = opspl[ss, :][gd]# opspl(xdat[gd])
                 vander[:, 1:] = np.polynomial.legendre.legvander(xfit[gd], nbasis - 2)
-                c, cov = self.basis_fitter(xfit[gd], yfit[gd], vander.copy(), w=wfit[gd], debug=False)  # ss==1000)
+                try:
+                    c, cov = self.basis_fitter(xfit[gd], yfit[gd], vander.copy(), w=wfit[gd], debug=False)  # ss==1000)
+                except np.linalg.LinAlgError:
+                    c = np.zeros(nbasis)
+                    cov = np.zeros((nbasis, nbasis)) + 1e20
                 ccont = c.copy()
                 ccont[1] = 0
                 gdc = np.where((np.abs(xfit) <= 1.0))  # Only include pixels that are defined within the spatial profile domain
@@ -2138,7 +2184,7 @@ class ReduceBase:
                     # plt.imshow(HIIresid, vmin=0, vmax=100)
                     # plt.show()
                     # embed()
-                    smooth = True
+                    smooth = False
                     if smooth:
                         HIIresid = ndimage.median_filter(HIIresid, size=(7,7), mode='nearest')
                         HIIresid = ndimage.gaussian_filter(HIIresid, sigma=3.0, mode='nearest', axes=0)
@@ -2196,10 +2242,26 @@ class ReduceBase:
                     if not self._step_subbg:
                         self.save_bgemission(bgfitted, idx)
                     # Redo object trace after removing the emission component
-                    spec = findobj_skymask.objs_in_slit(
-                        extfrm_use - bgfitted, ivar_use, gpm_img_new & opgpm, ledge, redge,
-                        ncoeff=self._polyord, boxcar_rad=3.0,
-                        show_fits=self._plotit, nperslit=1)[0]
+                    if self._prefix == "hd319718":
+                        # Obtain two traces
+                        trc_pos = self.trace_binary(extfrm_use - bgfitted, trc_pos_tmp=trccen)
+                        # Find which of these two traces is closest to the original trace
+                        dist1 = np.abs(trc_pos[0].TRACE_SPAT - spec.TRACE_SPAT)
+                        dist2 = np.abs(trc_pos[1].TRACE_SPAT - spec.TRACE_SPAT)
+                        spec = trc_pos[0] if np.mean(dist1) < np.mean(dist2) else trc_pos[1]
+                    else:
+                        spec = findobj_skymask.objs_in_slit(
+                            extfrm_use - bgfitted, ivar_use, gpm_img_new, ledge, redge,
+                            ncoeff=self._polyord, boxcar_rad=3.0,
+                            show_fits=self._plotit, nperslit=1)[0]
+                    # Plot the new tracing results
+                    if self._prefix == "hd319718" and plot_resid:
+                        thisframe = extfrm_use - bgfitted
+                        specpix = np.arange(thisframe.shape[self._specaxis])
+                        plt.imshow(thisframe.T, vmin=-200, vmax=5000, origin='lower', aspect=thisframe.shape[self._specaxis]/thisframe.shape[1-self._specaxis])
+                        plt.plot(specpix, spec.TRACE_SPAT, 'k--')
+                        plt.show()
+
                     allspatimg = (spatimg - spec.TRACE_SPAT[np.newaxis,:].T)
                     allspat = allspatimg.flatten()
                     if False:
@@ -2562,6 +2624,37 @@ class ReduceBase:
         return spec_optimal_flx, outspecimg, bgfitted, xspec1d, ivar_out
         # return spec_optimal_flx, bgfitted, xspec1d, ivar_out
 
+    def trace_binary(self, frame, trc_pos_tmp=None):
+        """
+        Trace two objects in a frame assuming there are two peaks per row
+        """
+        ppos_fit = np.zeros((frame.shape[self._specaxis], 2))
+        for rc in range(frame.shape[self._specaxis]):
+            pks, pkshgt = signal.find_peaks(frame[rc, :], height=100)
+            # Check there are two peaks
+            if len(pks) < 2:
+                continue
+            peakind = np.argsort(pkshgt['peak_heights'])[-2:]
+            peakpos = pks[peakind]
+            # Of these, sort by the peak position
+            peakpos = np.sort(peakpos)
+            # Fit a low order polynomial around the peaks
+            spatarr = np.arange(frame.shape[1 - self._specaxis])
+            for pp in range(2):
+                fitind = np.where((spatarr >= peakpos[pp] - 2.0) & (spatarr <= peakpos[pp] + 2.0))[0]
+                pcoeff = np.polyfit(spatarr[fitind], frame[rc, fitind], 2)
+                ppos_fit[rc, pp] = -0.5 * pcoeff[1] / pcoeff[0]
+        # Make two new traces, fit with a polynomial order
+        trc_pos = trc_pos_tmp
+        for tt in range(2):
+            # median filter to get rid of bad points
+            ppos_fit[:, tt] = ndimage.median_filter(ppos_fit[:, tt], size=11)
+            # fit with a robust polynomial
+            result = robust_fit(np.arange(frame.shape[self._specaxis]), ppos_fit[:, tt], self._polyord,
+                                in_gpm=ppos_fit[:, tt] != 0, maxdev=5.0)
+            trc_pos[tt].TRACE_SPAT = result.eval(np.arange(frame.shape[self._specaxis]))
+        return trc_pos
+
     def step_trace(self):
         print("entering :: step_trace()")
         st_time = time.time()
@@ -2574,7 +2667,7 @@ class ReduceBase:
         all_traces = []
         for ff in range(self._numframes):
             raw_specs = []
-            nmtch = len(self._matches[ff][1])
+            nmtch = 1#len(self._matches[ff][1])
             for xx in range(nmtch):
                 # Load the trace frame
                 trname = self.get_trace(ff)
@@ -2753,37 +2846,17 @@ class ReduceBase:
                         else:
                             # NEW METHOD -- recalculate the trace of two objects simultaneously
                             # For each for in the data, find two peaks in the spatial profile
-                            ppos_fit = np.zeros((frame.shape[self._specaxis], 2))
-                            for rc in range(frame.shape[self._specaxis]):
-                                pks, pkshgt = signal.find_peaks(frame[rc,:], height=100)
-                                # Check there are two peaks
-                                if len(pks) < 2:
-                                    continue
-                                peakind = np.argsort(pkshgt['peak_heights'])[-2:]
-                                peakpos = pks[peakind]
-                                # Of these, sort by the peak position
-                                peakpos = np.sort(peakpos)
-                                # Fit a low order polynomial around the peaks
-                                spatarr = np.arange(frame.shape[1-self._specaxis])
-                                for pp in range(2):
-                                    fitind = np.where((spatarr >= peakpos[pp]-2.0) & (spatarr <= peakpos[pp]+2.0))[0]
-                                    pcoeff = np.polyfit(spatarr[fitind], frame[rc, fitind], 2)
-                                    ppos_fit[rc, pp] = -0.5 * pcoeff[1] / pcoeff[0]
-                            # Make two new traces, fit with a polynomial order
-                            trc_pos = trc_pos_tmp
-                            for tt in range(2):
-                                # median filter to get rid of bad points
-                                ppos_fit[:, tt] = ndimage.median_filter(ppos_fit[:, tt], size=11)
-                                # fit with a robust polynomial
-                                result = robust_fit(np.arange(frame.shape[self._specaxis]), ppos_fit[:, tt], self._polyord, in_gpm=ppos_fit[:, tt]!=0, maxdev=5.0)
-                                trc_pos[tt].TRACE_SPAT = result.eval(np.arange(frame.shape[self._specaxis]))
+                            trc_pos = self.trace_binary(frame, trc_pos_tmp=trc_pos_tmp)
                     else:
                         trc_pos = trc_pos_fid
                 else:
                     trc_pos = trc_pos_tmp
                 if self._plotit or numtrc == 2:
                     spec = np.arange(frame.shape[self._specaxis])
-                    plt.imshow(frame.T, vmin=-200, vmax=5000, origin='lower', aspect=frame.shape[self._specaxis]/frame.shape[1-self._specaxis])
+                    if self._prefix == "wray15199":
+                        plt.imshow(frame.T, vmin=-2, vmax=50, origin='lower', aspect=frame.shape[self._specaxis]/frame.shape[1-self._specaxis])
+                    else:
+                        plt.imshow(frame.T, vmin=-200, vmax=5000, origin='lower', aspect=frame.shape[self._specaxis]/frame.shape[1-self._specaxis])
                     for sss in range(len(trc_pos)):
                         plt.plot(spec, trc_pos[sss].TRACE_SPAT, 'k--')
                         plt.plot(spec, trc_pos[sss].TRACE_SPAT + boxcar_rad, 'b-')
@@ -2878,7 +2951,8 @@ class ReduceBase:
                                     bgfrac_adjust = 0.1
                                 elif it >= 3:
                                     bgfrac_adjust = 1.0
-                                objspec, objspec_img, bgfitted_new, xspec1d, ivar_send = self.basis_fit(extfrm_use.copy()-bgfitted, ivar_send, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt, extfrm_use_nrm, ivar_use_nrm, bgfitted, edges=[ledge, redge], fullprof=it!=0, plot_resid=(it==numiterfit-1), inspec=objspec, trccen=trccen)
+                                # objspec, objspec_img, bgfitted_new, xspec1d, ivar_send = self.basis_fit(extfrm_use.copy()-bgfitted, ivar_send, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt, extfrm_use_nrm, ivar_use_nrm, bgfitted, edges=[ledge, redge], fullprof=it!=0, plot_resid=(it==numiterfit-1), inspec=objspec, trccen=trccen)
+                                objspec, objspec_img, bgfitted_new, xspec1d, ivar_send = self.basis_fit(extfrm_use.copy()-bgfitted, ivar_send, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt, extfrm_use_nrm, ivar_use_nrm, bgfitted, edges=[ledge, redge], fullprof=it!=0, plot_resid=False, inspec=objspec, trccen=trccen)
                                 if it <= 20:
                                     # For the low iterations, don't change the inverse variance
                                     ivar_send = np.copy(ivar_use)

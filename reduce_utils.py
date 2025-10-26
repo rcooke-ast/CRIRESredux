@@ -130,10 +130,15 @@ def model_onecomp(pixels, zerolev, cont0, cont1, cont2, wscl, wcons, logn, bval)
     return modconv
 
 
-def wavecal_prelim(procpath, file_prefix, numspec, mn_fit, mx_fit, basis=True, numcomp=2, scale_errors=False):
+def wavecal_prelim(procpath, file_prefix, numframe, mn_fit, mx_fit, basis=True, numcomp=2, scale_errors=False):
     bvals = []
-    for ff in range(numspec):
-        for nn in range(1):#, nod in enumerate(nods):
+    numspec = 2 if file_prefix=="hd319718" else 1
+    if file_prefix == "her36":
+        mn_fit -= 50
+        mx_fit += 50
+    for fff in range(numframe):
+        for nn in range(numspec):#, nod in enumerate(nods):
+            ff = numspec*fff + nn
             if basis:
                 # filn = "spec1d_{0:02d}.dat".format(2 * ff + nn)
                 # filn = "tet01OriA_mask_spec{0:02d}.dat".format(ff)
@@ -161,20 +166,60 @@ def wavecal_prelim(procpath, file_prefix, numspec, mn_fit, mx_fit, basis=True, n
                 cold = 13.65
                 bval = 6.7
                 # cont = [1.1*np.median(ffit), 0.0, 0.0]
-                cont = [0.95*np.max(ffit), 0.0, 0.0]
-                # tet01 Ori A:
-                # wpar = [1.3/35.0, -10.0/35.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and 0.0 means pixel 1657.5 = wavelength 10833.306444
+                cont = [np.max(ffit), 0.0, 0.0]
+                bounds = ([-np.inf, 0.0, -np.inf, -np.inf, -np.inf, -np.inf, 10.0, 1.0],
+                          [np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, 17.0, 30.0])
+                if file_prefix == "hd319718":
+                    # HD 319718:
+                    wpar = [1.3/35.0, (1657.0-0.999*(mn_fit+2*mx_fit)/3)/35.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and +3.0/35.0 means "this absorption occurs 3 pixels to the LEFT of tet01 Ori A"
+                elif file_prefix == "tet01OriA":
+                    # tet01 Ori A:
+                    wpar = [1.3/35.0, -10.0/35.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and 0.0 means pixel 1657.5 = wavelength 10833.306444
+                elif file_prefix == "wray15199":
+                    # Wray 15-199:
+                    cold = 15.0
+                    wpar = [1.3 / 35.0, (1650.0 - (mn_fit + 2 * mx_fit) / 3) / 35.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and +3.0/35.0 means "this absorption occurs 3 pixels to the LEFT of tet01 Ori A"
+                elif file_prefix == "her36":
+                    # Her 36:
+                    wpar = [1.3/35.0, (1657.0-(mn_fit+2*mx_fit)/3)/35.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and +3.0/35.0 means "this absorption occurs 3 pixels to the LEFT of tet01 Ori A"
+                    cold = 15.1
+                    bval = 9.1
+                    # bounds[0][3] = -1.0E-10
+                    # bounds[1][3] = 1.0E-10
+                else:
+                    print(f"\n\nInitial wavelength parameters need to be set for this target: {file_prefix}\n\n")
+                    embed()
+                    assert(False)
+                    # USE THIS CODE TO FIND GOOD STARTING PARAMETERS
+                    # The only thing you need to set is the initial guess for wpar
+                    popt = np.array([zerolev, cont[0], cont[1], cont[2], wpar[0], wpar[1], cold, bval])
+                    mfit = model_onecomp(pfit, *popt.copy())
+                    bvals.append(popt[-1])
+                    wvtmp = calculate_wavelength(pfit, popt[4], popt[5])
+                    vltmp = 299792.458 * (wvtmp - 10833.306444) / wvtmp
+                    contflx = popt[1] + (popt[2] * (wvtmp - wave_he)) + (popt[3] * (wvtmp - wave_he) ** 2)
+                    # np.savetxt("PDS241_tmp.dat", np.column_stack((vltmp, ffit/cont)))
+                    plt.plot(vltmp, contflx, 'c-')
+                    plt.plot(vltmp, ffit, 'k-', drawstyle='steps-mid')
+                    plt.plot(vltmp, mfit, 'r-')
+                    plt.axvline(36.6, color='m')
+                    plt.xlabel("Velocity relative to strongest He I* absorption")
+                    plt.ylabel("Flux")
+                    plt.show()
                 # PDS 241:
                 # wpar = [1.3 / 35.0, -150.0 / 35.0]  # PDS 241 --> -150 means "this absorption occurs 150 pixels to the right of tet01 Ori A"
-                # HD 319718:
-                wpar = [1.3/35.0, (1657.0-(mn_fit+2*mx_fit)/3)/35.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and +3.0/35.0 means "this absorption occurs 3 pixels to the LEFT of tet01 Ori A"
-                # Her 36:
-                # wpar = [1.3/35.0, (1657.0-(mn_fit+2*mx_fit)/3)/35.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and +3.0/35.0 means "this absorption occurs 3 pixels to the LEFT of tet01 Ori A"
                 if numcomp == 1:
                     params = [zerolev, cont[0], cont[1], cont[2], wpar[0], wpar[1], cold, bval]
                 elif numcomp == 2:
-                    # HD 319718:
-                    pdiff2, cold2, bval2 = (mn_fit+2*mx_fit)/3-50.0, 12.0, 10.0  # second component is at pixel 1613, with column density 12.0 and b-value 7.0
+                    if file_prefix == "hd319718":
+                        # HD 319718:
+                        pdiff2, cold2, bval2 = (mn_fit+2*mx_fit)/3-50.0, 12.0, 10.0  # second component is at pixel 1613, with column density 12.0 and b-value 7.0
+                    elif file_prefix == "her36":
+                        # Her 36:
+                        pdiff2, cold2, bval2 = (mn_fit+2*mx_fit)/3-70.0, 12.1, 12.5
+                    else:
+                        print("Initial 2nd component parameters need to be set for this target!")
+                        assert(False)
                     params = [zerolev, cont[0], cont[1], cont[2], wpar[0], wpar[1], cold, bval, pdiff2, cold2, bval2]
                 else:
                     assert(False), "numcomp must be 1 or 2"
@@ -192,7 +237,7 @@ def wavecal_prelim(procpath, file_prefix, numspec, mn_fit, mx_fit, basis=True, n
                     plt.show()
                 # Perform the fit
                 if numcomp == 1:
-                    popt, pcov = curve_fit(model_onecomp, pfit, ffit, p0=params, sigma=efit)
+                    popt, pcov = curve_fit(model_onecomp, pfit, ffit, p0=params, sigma=efit, bounds=bounds)
                     # Plot the final result
                     mfit = model_onecomp(pfit, *popt)
                 elif numcomp == 2:

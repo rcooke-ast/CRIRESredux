@@ -4,7 +4,7 @@ import numpy as np
 
 def main():
     # Initialise the reduce class
-    step = 0
+    step = 2
     thisred = Reduce(prefix="tet02OriA", match_name="tet02 Ori A", data_folder="Raw/",
                      use_diff=True,
                      step_listfiles=False, step_make_combinations=False,
@@ -146,7 +146,7 @@ class Reduce(ReduceBase):
 
         To determine these values, open up the two frames with the biggest difference in nod (e.g. +/- 6.5") in ds9,
         and hover the cursor over the middle of the strongest He I* absorption line. The inner left limit is the pixel
-        number at the middle fo the profile minus 90 pixels, and the right limit is the pixel number at the middle of
+        number at the middle of the profile minus 90 pixels, and the right limit is the pixel number at the middle of
         the profile plus 45 pixels. The outer limits need to be large enough to be able to model the full object
         profile in 2D.
         """
