@@ -28,7 +28,6 @@ def main():
                      step_sample_NumExpCombine=False)  # Combine a different number of exposures to estimate how S/N depends on the number of exposures combined.
     thisred.makePaths(redux_path="/Users/rcooke/Work/Research/BBN/helium34/Absorption/2023_CRIRES_Survey/tet01oriA/")
     thisred._plotit = False
-    thisred._comb_set = -1
     thisred.run()
 
 
@@ -37,16 +36,21 @@ class Reduce(ReduceBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Change some of the default parameters
-        self._nbasis = 5  # Number of basis functions to use for the continuum
+        self._nbasis = 7  # Number of basis functions to use for the continuum
         self._numcomp = 1
-        self._scalevariance = [10827.0, 10829.5]  # Scale the variance to match the measured variance in these regions
+        self._scalevariance = [10826.7, 10828.35]  # Scale the variance to match the measured variance in these regions
         self._scale_errors = True  # Scale the errors by 10x in regions with low flux. This is only used for fitting the wavelength solution with ALIS. The errors are scaled back to their extraction values during the combination.
+        self._polyord = 4
+        self._use_dark = True
+        # self._comb_set = 0  # These are the observations on 2022-10-24
+        self._comb_set = -1  # These are the observations on 2022-10-26
 
     def get_science_frames(self):
         """
         This was auto-generated with step_make_combinations()
         """
         #                A=1.0  (spec=0  DIT=10.0  NDIT=20)
+        # return [[["CRIRE.2022-10-24T06:00:36.335.fits"], ["CRIRE.2022-10-22T15:50:32.090.fits"]],  # B=6.5
         return [[["CRIRE.2022-10-24T06:00:36.335.fits"], ["CRIRE.2022-10-24T06:13:09.282.fits",  # B=6.5
                                                   "CRIRE.2022-10-26T07:37:01.870.fits",  # B=6.0
                                                   "CRIRE.2022-10-24T06:30:39.815.fits",  # B=5.5
@@ -59,7 +63,7 @@ class Reduce(ReduceBase):
                                                   "CRIRE.2022-10-24T06:26:34.004.fits",  # A=5.5
                                                   "CRIRE.2022-10-26T07:32:50.776.fits",  # A=6.0
                                                   "CRIRE.2022-10-24T06:09:01.470.fits"]],  # A=6.5
-        #                B=1.0  (spec=1  DIT=10.0  NDIT=20)
+                       # B=1.0  (spec=1  DIT=10.0  NDIT=20)
         [["CRIRE.2022-10-24T06:04:35.716.fits"], ["CRIRE.2022-10-24T06:13:09.282.fits",  # B=6.5
                                                   "CRIRE.2022-10-26T07:37:01.870.fits",  # B=6.0
                                                   "CRIRE.2022-10-24T06:30:39.815.fits",  # B=5.5
@@ -542,10 +546,10 @@ class Reduce(ReduceBase):
         """
         if full:
             # All of the object profile
-            return [850.0, 1574.0], [1707.0, 2000.0]
+            return [850.0, 1604.0], [1735.0, 2000.0]
         else:
             # Part of the object profile
-            return [850.0, 1574.0], [1707.0, 2000.0]
+            return [850.0, 1604.0], [1735.0, 2000.0]
 
     def print_SNregions(self, arr):
         """ Print the S/N in certain regions of the spectrum

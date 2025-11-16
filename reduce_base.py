@@ -109,6 +109,7 @@ class ReduceBase:
         self._numcomp = 1  # Number of components to use when fitting the absorption lines to get a preliminary wavelength solution
         self._scalevariance = [10827.0, 10829.5]  # Scale the variance to match the measured variance in these regions
         self._scale_errors = False
+        self._use_dark = False
 
         self.makePaths()
 
@@ -277,6 +278,7 @@ class ReduceBase:
         if self._step_sample_NumExpCombine: self.step_sample_NumExpCombine()
 
     def comb_prep(self, use_corrected=False, sky=False):
+        print("Using comb_set = {0:d} for comb_prep".format(self._comb_set))
         raw_specs = []
         minwv = 9999999999999
         maxwv = -minwv
@@ -545,8 +547,10 @@ class ReduceBase:
         # wc = np.where((out_wave >= 10836.4) & (out_wave <= 10837.2))
         mcf = np.polyfit(out_wave[wc], spec[wc], 2)
         modcont = np.polyval(mcf, out_wave[wc])
-        plt.plot(out_wave[wc], spec[wc], 'k-', drawstyle='steps')
+        plt.plot(out_wave, spec, 'k-', drawstyle='steps')
+        plt.plot(out_wave[wc], spec[wc], 'g-', drawstyle='steps')
         plt.plot(out_wave[wc], modcont, 'r-')
+        plt.ylim(0.8, 1.2)
         plt.show()
         sig_meas = np.std(spec[wc] - modcont)
         sig_calc = np.mean(specerr[wc])
@@ -1033,15 +1037,23 @@ class ReduceBase:
             img_a = fil_a[self._chip].data
             # embed()
             # assert False
-            # Take an average of all the matched frames to be subtracted off the main science frame
-            for ff in range(len(self._matches[mm][1])):
-                fil_b = fits.open(self._datapath + self._matches[mm][1][ff])
-                if ff == 0:
-                    img_b_arr = fil_b[self._chip].data[:,:,np.newaxis]
-                else:
-                    img_b_arr = np.concatenate((img_b_arr, fil_b[self._chip].data[:,:,np.newaxis]), axis=2)
-            # average to remove some ofo the higher values
-            img_b, _, _ = stats.sigma_clipped_stats(img_b_arr, sigma=3.0, maxiters=5, axis=2, stdfunc='mad_std')
+            if self._use_dark:
+                print("USING DARK FRAME INSTEAD OF AVERAGED NOD FRAMES")
+                try:
+                    img_b = np.zeros_like(img_a)
+                    img_b[self._slice] = fits.open(self.get_darkname(self._masterdark_name, int(fil_a[0].header['EXPTIME'])))[0].data
+                except FileNotFoundError:
+                    print("    WARNING :: No matching dark found, proceeding without dark subtraction")
+            else:
+                # Take an average of all the matched frames to be subtracted off the main science frame
+                for ff in range(len(self._matches[mm][1])):
+                    fil_b = fits.open(self._datapath + self._matches[mm][1][ff])
+                    if ff == 0:
+                        img_b_arr = fil_b[self._chip].data[:,:,np.newaxis]
+                    else:
+                        img_b_arr = np.concatenate((img_b_arr, fil_b[self._chip].data[:,:,np.newaxis]), axis=2)
+                # average to remove some ofo the higher values
+                img_b, _, _ = stats.sigma_clipped_stats(img_b_arr, sigma=3.0, maxiters=5, axis=2, stdfunc='mad_std')
             # img_b = np.mean(img_b_arr, axis=2)
             # if fil_a[0].header['HIERARCH ESO SEQ NODPOS'].strip() == 'A':
             #     print("Found A", mm)
@@ -1279,7 +1291,7 @@ class ReduceBase:
             ty = np.linspace(limfl[0], limfr[1], tsty[tt])
             ty = np.append(np.ones(3) * ty[0], np.append(ty, ty[-1] * np.ones(3)))
             # Make tx
-            nxest = int(3+np.sqrt(np.sum(fitpix)/2)) - 6
+            nxest = int(3+np.sqrt(np.sum(fitpix)/10)) - 6
             if False:
                 mdreg = np.arange(-4.0, 4.1, 0.15)
                 lreg = np.arange(np.min(allspatimg[fitpix]), -5.0, 1.0)
@@ -1760,10 +1772,15 @@ class ReduceBase:
             yfit = frame[ss, :]
             wfit = ivar[ss, :]  # DONT CHANGE THIS WITHOUT CHANGING OUTFLUXBOX_ERR BELOW!!!
             gd = np.where((xdat > -maxspatl) & (xdat < maxspatr) & (gpm_img[ss, :]))  # Only include pixels that are defined within the spatial profile domain
+            gdev = np.where((xdat > -maxspatl) & (xdat < maxspatr))  # Only include pixels that are defined within the spatial profile domain
             # Construct the vandermonde matrix
             vander = np.ones((xfit[gd].size, nbasis))
             vander[:, 0] = opspl[ss, :][gd]# opspl(xdat[gd])
             vander[:, 1:] = np.polynomial.legendre.legvander(xfit[gd], nbasis - 2)
+            # Vander for the evaluation
+            vanderev = np.ones((xfit[gdev].size, nbasis))
+            vanderev[:, 0] = opspl[ss, :][gdev]# opspl(xdat[gd])
+            vanderev[:, 1:] = np.polynomial.legendre.legvander(xfit[gdev], nbasis - 2)
             try:
                 c, cov = self.basis_fitter(xfit[gd], yfit[gd], vander.copy(), w=wfit[gd], debug=False)  # ss==1000)
             except np.linalg.LinAlgError:
@@ -1780,8 +1797,8 @@ class ReduceBase:
             vanderc[:, 0] = opspl[ss, :][gdc]#opspl(xdat[gdc])
             vanderc[:, 1:] = np.polynomial.legendre.legvander(xfit[gdc], nbasis - 2)  # The rest of the basis are the odd Legendre polynomials
             HIIflux[ss, gdc[0]] = frame[ss, gdc[0]] - np.dot(vanderc, c * np.append(1, np.zeros(nbasis - 1)))
-            model[ss, gd[0]] = np.dot(vander, c)
-            modelstar[ss, gd[0]] = np.dot(vander, c * np.append(1, np.zeros(nbasis - 1)))
+            model[ss, gdev[0]] = np.dot(vanderev, c)
+            modelstar[ss, gdev[0]] = np.dot(vanderev, c * np.append(1, np.zeros(nbasis - 1)))
             if False:
                 plt.plot(xfit[gd], yfit[gd], 'k-', drawstyle='steps-mid')
                 plt.plot(xfit[gd], np.dot(vander, c), 'r-')
@@ -1988,7 +2005,7 @@ class ReduceBase:
         sigrej = 3
         nbasis = self._nbasis  # 25
         binsize = 0.1
-        nwindow = 25  # +/- 30 pixels is about the maximum window that can be used around the object trace when the nod is +/-6.5 arcseconds from the slit centre
+        nwindow = 20  # +/- 30 pixels is about the maximum window that can be used around the object trace when the nod is +/-6.5 arcseconds from the slit centre
         nspec, nspat = extfrm_use.shape
         # Set the window edges
         ledge, redge = edges
@@ -2250,8 +2267,12 @@ class ReduceBase:
                         dist2 = np.abs(trc_pos[1].TRACE_SPAT - spec.TRACE_SPAT)
                         spec = trc_pos[0] if np.mean(dist1) < np.mean(dist2) else trc_pos[1]
                     else:
+                        # Mask out the regions with absorption features
+                        obj_thismask = gpm_img_new.copy()
+                        limsA, limsB = self.get_objprof_limits()
+                        obj_thismask[int(limsA[1])+20:int(limsB[0])-20] = 0
                         spec = findobj_skymask.objs_in_slit(
-                            extfrm_use - bgfitted, ivar_use, gpm_img_new, ledge, redge,
+                            extfrm_use - bgfitted, ivar_use, obj_thismask, ledge, redge,
                             ncoeff=self._polyord, boxcar_rad=3.0,
                             show_fits=self._plotit, nperslit=1)[0]
                     # Plot the new tracing results
@@ -2516,16 +2537,16 @@ class ReduceBase:
                     plt.show()
 
             plt.subplot(181)
-            plt.imshow(extfrm_use[wslice], origin='lower', cmap='gray', aspect=0.3, vmin=0, vmax=modmax)
+            plt.imshow(extfrm_use[wslice], origin='lower', cmap='gray', aspect=0.3, vmin=-3*np.median(full_bg[wslice]), vmax=30*np.median(full_bg[wslice]))
             plt.subplot(182)
             plt.imshow(profile_img[wslice], origin='lower', cmap='gray', aspect=0.3, vmin=0, vmax=np.max(profile_img))
             plt.subplot(183)
-            plt.imshow(model[wslice], origin='lower', cmap='gray', aspect=0.3, vmin=0, vmax=modmax)
+            plt.imshow(model[wslice], origin='lower', cmap='gray', aspect=0.3, vmin=-3*np.median(full_bg[wslice]), vmax=30*np.median(full_bg[wslice]))
             plt.subplot(184)
             plt.imshow(full_bg[wslice], origin='lower', cmap='gray', aspect=0.3, vmin=-3*np.median(full_bg[wslice]), vmax=3*np.median(full_bg[wslice]))
             plt.subplot(185)
             madbg = 1.4826*np.median(np.abs(np.median(bgfitted[wslice])-bgfitted[wslice]))
-            plt.imshow(bgfitted[wslice], origin='lower', cmap='gray', aspect=0.3, vmin=-3*madbg, vmax=3*madbg)
+            plt.imshow(bgfitted[wslice], origin='lower', cmap='gray', aspect=0.3, vmin=-5*madbg, vmax=5*madbg)
             plt.subplot(186)
             plt.imshow((extfrm_use[wslice] - bgfitted[wslice] - model[wslice])*np.sqrt(ivar_use[wslice]), origin='lower', cmap='gray', aspect=0.3, vmin=-3, vmax=3)
             plt.subplot(187)
@@ -2666,6 +2687,8 @@ class ReduceBase:
         # Perform the object trace and extraction
         all_traces = []
         for ff in range(self._numframes):
+            # if ff not in [18]:  # 18 is wavy, 6 has strange features
+            #     continue
             raw_specs = []
             nmtch = 1#len(self._matches[ff][1])
             for xx in range(nmtch):
@@ -2785,6 +2808,10 @@ class ReduceBase:
                 numtrc = 1
                 if self._prefix == "hd319718":
                     numtrc = 2
+                # Mask out the regions with absorption features
+                limsA, limsB = self.get_objprof_limits()
+                thismask[int(limsA[1]):int(limsB[0])] = 0
+                # Now perform the trace
                 trc_pos_tmp = findobj_skymask.objs_in_slit(
                     trframe, ivar, thismask, ledge, redge,
                     ncoeff=self._polyord, boxcar_rad=boxcar_rad,
@@ -2951,8 +2978,8 @@ class ReduceBase:
                                     bgfrac_adjust = 0.1
                                 elif it >= 3:
                                     bgfrac_adjust = 1.0
-                                # objspec, objspec_img, bgfitted_new, xspec1d, ivar_send = self.basis_fit(extfrm_use.copy()-bgfitted, ivar_send, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt, extfrm_use_nrm, ivar_use_nrm, bgfitted, edges=[ledge, redge], fullprof=it!=0, plot_resid=(it==numiterfit-1), inspec=objspec, trccen=trccen)
-                                objspec, objspec_img, bgfitted_new, xspec1d, ivar_send = self.basis_fit(extfrm_use.copy()-bgfitted, ivar_send, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt, extfrm_use_nrm, ivar_use_nrm, bgfitted, edges=[ledge, redge], fullprof=it!=0, plot_resid=False, inspec=objspec, trccen=trccen)
+                                objspec, objspec_img, bgfitted_new, xspec1d, ivar_send = self.basis_fit(extfrm_use.copy()-bgfitted, ivar_send, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt, extfrm_use_nrm, ivar_use_nrm, bgfitted, edges=[ledge, redge], fullprof=it!=0, plot_resid=(it==numiterfit-1), inspec=objspec, trccen=trccen)
+                                # objspec, objspec_img, bgfitted_new, xspec1d, ivar_send = self.basis_fit(extfrm_use.copy()-bgfitted, ivar_send, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt, extfrm_use_nrm, ivar_use_nrm, bgfitted, edges=[ledge, redge], fullprof=it!=0, plot_resid=False, inspec=objspec, trccen=trccen)
                                 if it <= 20:
                                     # For the low iterations, don't change the inverse variance
                                     ivar_send = np.copy(ivar_use)
