@@ -136,6 +136,9 @@ def wavecal_prelim(procpath, file_prefix, numframe, mn_fit, mx_fit, basis=True, 
     if file_prefix == "her36":
         mn_fit -= 50
         mx_fit += 50
+    elif file_prefix == "wray15199":
+        mn_fit -= 70
+        mx_fit += 50
     for fff in range(numframe):
         for nn in range(numspec):#, nod in enumerate(nods):
             ff = numspec*fff + nn
@@ -165,8 +168,8 @@ def wavecal_prelim(procpath, file_prefix, numframe, mn_fit, mx_fit, basis=True, 
                 zerolev = 0.0
                 cold = 13.65
                 bval = 6.7
-                # cont = [1.1*np.median(ffit), 0.0, 0.0]
-                cont = [np.max(ffit), 0.0, 0.0]
+                cont = [1.1*np.median(ffit), 0.0, 0.0]
+                # cont = [np.max(ffit), 0.0, 0.0]
                 bounds = ([-np.inf, 0.0, -np.inf, -np.inf, -np.inf, -np.inf, 10.0, 1.0],
                           [np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, 17.0, 30.0])
                 if file_prefix == "hd319718":
@@ -178,7 +181,7 @@ def wavecal_prelim(procpath, file_prefix, numframe, mn_fit, mx_fit, basis=True, 
                 elif file_prefix == "wray15199":
                     # Wray 15-199:
                     cold = 15.0
-                    wpar = [1.3 / 35.0, (1650.0 - (mn_fit + 2 * mx_fit) / 3) / 35.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and +3.0/35.0 means "this absorption occurs 3 pixels to the LEFT of tet01 Ori A"
+                    wpar = [1.3 / 35.0, (1670.0 - (mn_fit + 2 * mx_fit) / 3) / 35.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and +3.0/35.0 means "this absorption occurs 3 pixels to the LEFT of tet01 Ori A"
                 elif file_prefix == "her36":
                     # Her 36:
                     wpar = [1.3/35.0, (1657.0-(mn_fit+2*mx_fit)/3)/35.0]  # 1.3/35.0 is an estimate of the Angstroms/pixel and +3.0/35.0 means "this absorption occurs 3 pixels to the LEFT of tet01 Ori A"
@@ -237,7 +240,14 @@ def wavecal_prelim(procpath, file_prefix, numframe, mn_fit, mx_fit, basis=True, 
                     plt.show()
                 # Perform the fit
                 if numcomp == 1:
-                    popt, pcov = curve_fit(model_onecomp, pfit, ffit, p0=params, sigma=efit, bounds=bounds)
+                    try:
+                        popt, pcov = curve_fit(model_onecomp, pfit, ffit, p0=params, sigma=efit, bounds=bounds)
+                    except:
+                        mfit = model_onecomp(pfit, *params)
+                        plt.plot(pfit, ffit, 'k-', drawstyle='steps-mid')
+                        plt.plot(pfit, mfit, 'r-')
+                        plt.show()
+                        embed()
                     # Plot the final result
                     mfit = model_onecomp(pfit, *popt)
                 elif numcomp == 2:

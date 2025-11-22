@@ -2945,7 +2945,7 @@ class ReduceBase:
                             # bgspec = np.ma.median(extfrm_use, axis=1)
                             # bgspec = np.median(extfrm_use, axis=1)
                             # Apply a median filter to the background spectrum
-                            bgfilt = signal.medfilt(bgspec, 25)
+                            bgfilt = bgspec#signal.medfilt(bgspec, 25)
                             bgfitted = np.tile(bgfilt, (extfrm_use.shape[1], 1)).T
                             # Make a smoothing spline of the background pixels
                             if False:  # No improvement from just using median.
@@ -2978,8 +2978,8 @@ class ReduceBase:
                                     bgfrac_adjust = 0.1
                                 elif it >= 3:
                                     bgfrac_adjust = 1.0
-                                objspec, objspec_img, bgfitted_new, xspec1d, ivar_send = self.basis_fit(extfrm_use.copy()-bgfitted, ivar_send, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt, extfrm_use_nrm, ivar_use_nrm, bgfitted, edges=[ledge, redge], fullprof=it!=0, plot_resid=(it==numiterfit-1), inspec=objspec, trccen=trccen)
-                                # objspec, objspec_img, bgfitted_new, xspec1d, ivar_send = self.basis_fit(extfrm_use.copy()-bgfitted, ivar_send, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt, extfrm_use_nrm, ivar_use_nrm, bgfitted, edges=[ledge, redge], fullprof=it!=0, plot_resid=False, inspec=objspec, trccen=trccen)
+                                # objspec, objspec_img, bgfitted_new, xspec1d, ivar_send = self.basis_fit(extfrm_use.copy()-bgfitted, ivar_send, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt, extfrm_use_nrm, ivar_use_nrm, bgfitted, edges=[ledge, redge], fullprof=it!=0, plot_resid=(it==numiterfit-1), inspec=objspec, trccen=trccen)
+                                objspec, objspec_img, bgfitted_new, xspec1d, ivar_send = self.basis_fit(extfrm_use.copy()-bgfitted, ivar_send, tilts, waveimg, spatimg, trcs[ee], 2 * ff + tt, extfrm_use_nrm, ivar_use_nrm, bgfitted, edges=[ledge, redge], fullprof=it!=0, plot_resid=False, inspec=objspec, trccen=trccen)
                                 if it <= 20:
                                     # For the low iterations, don't change the inverse variance
                                     ivar_send = np.copy(ivar_use)

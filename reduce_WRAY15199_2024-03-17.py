@@ -42,6 +42,7 @@ class Reduce(ReduceBase):
         self._numcomp = 1
         self._scalevariance = [10827.0, 10829.5]  # Scale the variance to match the measured variance in these regions
         self._scale_errors = True  # Scale the errors by 10x in regions with low flux. This is only used for fitting the wavelength solution with ALIS. The errors are scaled back to their extraction values during the combination.
+        self._use_dark = True
 
     def get_science_frames(self):
         """
@@ -673,11 +674,16 @@ class Reduce(ReduceBase):
 
     def get_dark_frames(self):
         """
+-rw-r--r--    1 rcooke  staff   50564160 22 Nov 09:34
+-rw-r--r--    1 rcooke  staff   50564160 22 Nov 09:34
+-rw-r--r--    1 rcooke  staff   50564160 22 Nov 09:35
         """
         # Group dark files with different exposure times
         return [["CRIRE.2024-03-18T10:25:47.023.fits","CRIRE.2024-03-18T10:26:10.363.fits","CRIRE.2024-03-18T10:26:33.713.fits"],#5s
                 ["CRIRE.2024-03-18T10:23:15.495.fits", "CRIRE.2024-03-18T10:24:05.993.fits", "CRIRE.2024-03-18T10:24:56.504.fits"],#45s
-                ["CRIRE.2024-03-18T10:16:58.961.fits","CRIRE.2024-03-18T10:19:04.478.fits","CRIRE.2024-03-18T10:21:09.984.fits"]]#120s
+                ["CRIRE.2024-03-18T10:16:58.961.fits","CRIRE.2024-03-18T10:19:04.478.fits","CRIRE.2024-03-18T10:21:09.984.fits"],#120s
+                ["CRIRE.2024-03-21T12:05:59.169.fits", "CRIRE.2024-03-21T12:01:53.695.fits", "CRIRE.2024-03-21T11:57:48.222.fits"],#240s
+                ["CRIRE.2024-10-15T09:42:13.137.fits", "CRIRE.2024-10-15T09:52:24.041.fits", "CRIRE.2024-10-15T09:47:18.593.fits"]]#300s
 
     def get_arc_frames(self):
         return ["CRIRE.2024-03-18T10:10:58.837.fits"]

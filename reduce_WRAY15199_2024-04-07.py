@@ -42,6 +42,7 @@ class Reduce(ReduceBase):
         self._numcomp = 1
         self._scalevariance = [10827.0, 10829.5]  # Scale the variance to match the measured variance in these regions
         self._scale_errors = True  # Scale the errors by 10x in regions with low flux. This is only used for fitting the wavelength solution with ALIS. The errors are scaled back to their extraction values during the combination.
+        self._use_dark = True
 
     def get_science_frames(self):
         """
