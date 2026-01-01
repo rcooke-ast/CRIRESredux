@@ -326,6 +326,31 @@ class ReduceBase:
                         minwv = np.min(opt_wave)
                     if np.max(opt_wave) > maxwv:
                         maxwv = np.max(opt_wave)
+            elif self._prefix == "wray15199b":
+                print("\n\n\nWARNING :: you need to know what you're doing to combine here -- currently combining data on multiple dates!\n\n")
+                embed()
+                dates = ["2024-03-19", "2024-04-07", "2024-04-19", "2024-04-20", "2024-04-21"]
+                for dateval in dates:
+                    extraPath = f"/Users/rcooke/Work/Research/BBN/helium34/Absorption/2023_CRIRES_Survey/WRAY_15-199/{dateval}/redux_wray15199/processed/wray15199"
+                    extensive = False
+                    for ff in range(100):
+                        try:
+                            outname = extraPath + "_ALIS_spec{0:02d}_wzcorr.dat".format(ff)
+                            print("Included frame {0:s} from date {1:s}".format(outname, dateval))
+                            opt_wave, opt_cnts, opt_cerr = np.loadtxt(outname, usecols=(0, 2, 3), unpack=True)
+                        except:
+                            # Flag that all frames have been found
+                            print("Found {0:d} frames for date {1:s}".format(ff, dateval))
+                            extensive = True
+                            break
+                        raw_specs.append(XSpectrum1D.from_tuple((opt_wave, opt_cnts, opt_cerr), verbose=False))
+                        if np.min(opt_wave) < minwv:
+                            minwv = np.min(opt_wave)
+                        if np.max(opt_wave) > maxwv:
+                            maxwv = np.max(opt_wave)
+                    if not extensive:
+                        print("Not found all frames... disaster!")
+                        embed()
         else:
             # usePath = self._altpath
             # if self._use_diff: usePath = self._procpath
@@ -1329,9 +1354,14 @@ class ReduceBase:
         outImage_sub = np.zeros_like(allspatimg_sub)
         for ii in range(ev_spec_sub.size):
             outImage_sub[idxs_sub[0][ii], idxs_sub[1][ii]] = interpolate.bisplev(ev_spat_sub[ii], ev_spec_sub[ii], tck) / subpixels
-        minv = np.min(outImage_sub[outImage_sub!=0.0])
+        # minv = np.min(outImage_sub[outImage_sub!=0.0])
+        tsttst = outImage_sub[outImage_sub != 0.0]
+        minv = np.sort(tsttst)[int(tsttst.size * 0.05)]  # 5th percentile
+        print("Subtracting {0:.4f} from profiles".format(minv))
         outImage[outImage!=0] -= minv*subpixels
+        outImage[outImage < 0] = 0.0
         outImage_sub[outImage_sub!=0] -= minv
+        outImage_sub[outImage_sub < 0] = 0.0
         norm = utils.inverse(np.sum(outImage, axis=1)[:, None])
         normsub = utils.inverse(np.sum(outImage_sub, axis=1)[:, None])
         # mednrm = np.median(norm[norm != 0.0])
@@ -1363,7 +1393,7 @@ class ReduceBase:
         # If inspec is provided, adjust the object profile image
         outImageAdjust = outImage.copy()
         opdata = np.zeros(outImageAdjust.shape, dtype=bool)
-        if inspec is not None:
+        if inspec is not None and self._prefix not in ['tet01OriA', 'wray15199']:
             # embed()
             # assert False
             if False:
@@ -2484,6 +2514,14 @@ class ReduceBase:
             spec_optimal_sig = spec.OPT_COUNTS_SIG.flatten() * normfact
             spec_optimal_wav = spec.OPT_WAVE.flatten()
 
+            if plot_resid and False:
+                embed()
+                plt.plot(spec_optimal_wav, spec_optimal_flx, 'k-', drawstyle='steps-mid')
+                plt.plot(spec_optimal_wav, ((full_bg + bgfitted) * profile_img).sum(1), 'b-', drawstyle='steps-mid')
+                plt.show()
+
+                plt.imshow((full_bg + bgfitted) * profile_img)
+                plt.show()
         # Plot the residual images
         if plot_resid:
             # embed()

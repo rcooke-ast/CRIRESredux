@@ -6,7 +6,7 @@ def main():
     # Initialise the reduce class
     cals = False
     makediff = False
-    step = 2
+    step = 0
     thisred = Reduce(prefix="tet01OriA", match_name="tet01 Ori A", data_folder="Raw/",
                      use_diff=True,
                      step_listfiles=False, step_make_combinations=False,
@@ -36,14 +36,14 @@ class Reduce(ReduceBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Change some of the default parameters
-        self._nbasis = 7  # Number of basis functions to use for the continuum
+        self._nbasis = 15  # Number of basis functions to use for the continuum
         self._numcomp = 1
         self._scalevariance = [10826.7, 10828.35]  # Scale the variance to match the measured variance in these regions
         self._scale_errors = True  # Scale the errors by 10x in regions with low flux. This is only used for fitting the wavelength solution with ALIS. The errors are scaled back to their extraction values during the combination.
         self._polyord = 4
         self._use_dark = True
-        # self._comb_set = 0  # These are the observations on 2022-10-24
-        self._comb_set = -1  # These are the observations on 2022-10-26
+        self._comb_set = 0  # These are the observations on 2022-10-24
+        # self._comb_set = 1  # These are the observations on 2022-10-26
 
     def get_science_frames(self):
         """
