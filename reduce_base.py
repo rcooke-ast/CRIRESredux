@@ -2973,6 +2973,35 @@ class ReduceBase:
                         # ivar_use = ndimage.median_filter(ivar, size=(7, 1))
                         ivar_use = ivar
                         extfrm_use = frame
+                        if False:
+                            # Check the profile shapes near the strong gradients
+                            idx = [800, 900, 1000, 1100, 1200, 1400, 1500]
+                            xplot = np.arange(extfrm_use.shape[1])
+                            plt.subplot(131)
+                            for ii in np.arange(800,1000):
+                                # Fit a quadratic to the centre 5 pixels around the trace
+                                pxfit = np.arange(-2, 3) + trc_pos[0].TRACE_SPAT[ii]
+                                pxidx = np.round(pxfit).astype(int)
+                                coeff = np.polyfit(pxfit, extfrm_use[ii,pxidx], 2)
+                                maxval = np.polyval(coeff, trc_pos[0].TRACE_SPAT[ii])
+                                # plt.plot(pxfit - trc_pos[0].TRACE_SPAT[ii], extfrm_use[ii,pxidx]/maxval, 'k-')
+                                plt.plot(xplot - trc_pos[0].TRACE_SPAT[ii], extfrm_use[ii, :] / maxval, 'k-')
+                            idx = [1680]
+                            diff = np.gradient(extfrm_use, axis=0)
+                            from matplotlib import cm
+                            for ii in np.arange(1675,1690):
+                                # Fit a quadratic to the centre 5 pixels around the trace
+                                pxfit = np.arange(-2, 3) + trc_pos[0].TRACE_SPAT[ii]
+                                pxidx = np.round(pxfit).astype(int)
+                                coeff = np.polyfit(pxfit, extfrm_use[ii,pxidx], 2)
+                                maxval = np.polyval(coeff, trc_pos[0].TRACE_SPAT[ii])
+                                plt.plot(xplot - trc_pos[0].TRACE_SPAT[ii], extfrm_use[ii, :] / maxval, linestyle='-', color=cm.rainbow((ii-1675)/15))
+                                # plt.plot(xplot-trc_pos[0].TRACE_SPAT[ii], extfrm_use[ii,:]/maxval, linestyle='-', color=cm.rainbow(diff[ii, np.round(trc_pos[0].TRACE_SPAT[ii]).astype(int)]/10000))
+                            plt.subplot(132)
+                            plt.imshow(extfrm_use, origin='lower', aspect='auto', vmin=0, vmax=np.percentile(extfrm_use, 99.5))
+                            plt.subplot(133)
+                            plt.imshow(diff, origin='lower', aspect='auto', vmin=-10000, vmax=10000)
+                            plt.show()
                         # Are we doing basis fitting
                         if self._step_basis:
                             extfrm_use_nrm, ivar_use_nrm = extfrm_use.copy(), ivar_use.copy()
